@@ -1,0 +1,939 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>CineCBR — Film Recommendation powered by Case-Based Reasoning</title>
+<meta name="description" content="Sistem rekomendasi film berbasis Case-Based Reasoning (CBR). Retrieve, Reuse, Revise, Retain."/>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;900&display=swap" rel="stylesheet"/>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"/>
+<style>
+/* ─── Reset & Base ─────────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --black:      #141414;
+  --dark:       #1a1a1a;
+  --card:       #1f1f1f;
+  --card-hover: #2a2a2a;
+  --red:        #E50914;
+  --red-dark:   #b20710;
+  --red-glow:   rgba(229, 9, 20, 0.25);
+  --gold:       #f5c518;
+  --text:       #ffffff;
+  --muted:      #b3b3b3;
+  --border:     #2d2d2d;
+  --green:      #46d369;
+  --step-inactive: #333;
+  --step-active:   #E50914;
+  --step-done:     #46d369;
+}
+
+html { scroll-behavior: smooth; }
+
+body {
+  font-family: 'Inter', sans-serif;
+  background: var(--black);
+  color: var(--text);
+  min-height: 100vh;
+  line-height: 1.5;
+}
+
+/* ─── Scrollbar ─────────────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: var(--dark); }
+::-webkit-scrollbar-thumb { background: #444; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--red); }
+
+/* ─── Header ───────────────────────────────────────────────────────────── */
+header {
+  position: sticky; top: 0; z-index: 100;
+  background: linear-gradient(to bottom, rgba(20,20,20,.98) 0%, rgba(20,20,20,.85) 100%);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--border);
+  padding: 0 40px;
+  height: 64px;
+  display: flex; align-items: center; justify-content: space-between;
+}
+
+.logo {
+  font-size: 1.6rem; font-weight: 900; letter-spacing: -1px;
+  color: var(--red); text-decoration: none;
+  display: flex; align-items: center; gap: 8px;
+}
+.logo i { font-size: 1.4rem; }
+
+.header-right {
+  display: flex; align-items: center; gap: 16px;
+}
+
+.stat-pill {
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: 20px; padding: 4px 14px;
+  font-size: 0.78rem; color: var(--muted);
+  display: flex; align-items: center; gap: 6px;
+}
+.stat-pill span { color: var(--text); font-weight: 600; }
+
+/* ─── Main layout ───────────────────────────────────────────────────────── */
+main {
+  max-width: 1280px; margin: 0 auto;
+  padding: 40px 40px 80px;
+}
+
+/* ─── Search Section ─────────────────────────────────────────────────── */
+.search-section {
+  background: linear-gradient(135deg, #1f1f1f 0%, #181818 100%);
+  border: 1px solid var(--border); border-radius: 16px;
+  padding: 36px 40px;
+  margin-bottom: 32px;
+}
+
+.search-section h1 {
+  font-size: 1.5rem; font-weight: 700; margin-bottom: 4px;
+}
+.search-section p {
+  color: var(--muted); font-size: 0.9rem; margin-bottom: 28px;
+}
+
+.search-grid {
+  display: grid; grid-template-columns: 1fr 1fr auto;
+  gap: 16px; align-items: end;
+}
+
+.form-group { display: flex; flex-direction: column; gap: 6px; }
+.form-group label {
+  font-size: 0.78rem; font-weight: 600;
+  color: var(--muted); letter-spacing: 0.5px; text-transform: uppercase;
+}
+
+.input-wrap { position: relative; }
+.input-wrap i {
+  position: absolute; left: 14px; top: 50%; transform: translateY(-50%);
+  color: var(--muted); font-size: 0.9rem; pointer-events: none;
+}
+
+input[type="text"], input[type="number"] {
+  width: 100%; background: #111; border: 1px solid var(--border);
+  border-radius: 8px; padding: 12px 14px 12px 38px;
+  font-size: 0.95rem; color: var(--text); font-family: 'Inter', sans-serif;
+  transition: border-color .2s, box-shadow .2s;
+  outline: none;
+}
+input[type="text"]:focus, input[type="number"]:focus {
+  border-color: var(--red);
+  box-shadow: 0 0 0 3px var(--red-glow);
+}
+input::placeholder { color: #555; }
+
+.autocomplete-list {
+  position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 50;
+  background: #1a1a1a; border: 1px solid var(--border); border-radius: 8px;
+  max-height: 200px; overflow-y: auto; display: none;
+}
+.autocomplete-list.open { display: block; }
+.autocomplete-item {
+  padding: 10px 14px; cursor: pointer; font-size: 0.88rem;
+  transition: background .15s;
+}
+.autocomplete-item:hover { background: var(--card-hover); }
+.autocomplete-item .genre-tag { color: var(--muted); font-size: 0.75rem; margin-left: 8px; }
+
+.btn-search {
+  background: var(--red); color: #fff; border: none;
+  border-radius: 8px; padding: 12px 28px;
+  font-size: 0.95rem; font-weight: 700; cursor: pointer;
+  display: flex; align-items: center; gap: 8px; white-space: nowrap;
+  transition: background .2s, transform .1s;
+  font-family: 'Inter', sans-serif;
+}
+.btn-search:hover { background: var(--red-dark); }
+.btn-search:active { transform: scale(.97); }
+.btn-search:disabled { background: #555; cursor: not-allowed; }
+
+/* ─── CBR Flow ─────────────────────────────────────────────────────────── */
+.cbr-flow-section {
+  margin-bottom: 32px;
+}
+
+.cbr-flow-section h2 {
+  font-size: 0.78rem; font-weight: 700; color: var(--muted);
+  letter-spacing: 2px; text-transform: uppercase; margin-bottom: 16px;
+}
+
+.cbr-flow {
+  display: flex; align-items: stretch; gap: 0;
+  background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+  overflow: hidden;
+}
+
+.cbr-step {
+  flex: 1; padding: 20px 24px;
+  display: flex; flex-direction: column; gap: 6px;
+  border-right: 1px solid var(--border);
+  position: relative; transition: background .3s;
+}
+.cbr-step:last-child { border-right: none; }
+
+.cbr-step.active { background: rgba(229, 9, 20, 0.08); }
+.cbr-step.done   { background: rgba(70, 211, 105, 0.06); }
+
+.step-header {
+  display: flex; align-items: center; gap: 10px;
+}
+
+.step-num {
+  width: 28px; height: 28px; border-radius: 50%;
+  border: 2px solid var(--step-inactive);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 0.75rem; font-weight: 700; color: var(--muted);
+  flex-shrink: 0; transition: all .3s;
+}
+.cbr-step.active .step-num { border-color: var(--red); color: var(--red); }
+.cbr-step.done   .step-num { border-color: var(--green); color: var(--green); background: rgba(70,211,105,.1); }
+
+.step-icon {
+  font-size: 1.1rem; color: var(--muted); transition: color .3s;
+}
+.cbr-step.active .step-icon { color: var(--red); }
+.cbr-step.done   .step-icon { color: var(--green); }
+
+.step-name {
+  font-size: 0.72rem; font-weight: 700; letter-spacing: 1.5px;
+  text-transform: uppercase; color: var(--muted); transition: color .3s;
+}
+.cbr-step.active .step-name { color: var(--red); }
+.cbr-step.done   .step-name { color: var(--green); }
+
+.step-detail {
+  font-size: 0.8rem; color: #555; min-height: 18px; transition: color .3s;
+}
+.cbr-step.active .step-detail { color: var(--muted); }
+.cbr-step.done   .step-detail { color: var(--green); }
+
+.step-badge {
+  display: inline-flex; align-items: center; gap: 4px;
+  background: var(--red); color: #fff;
+  border-radius: 12px; padding: 2px 10px;
+  font-size: 0.72rem; font-weight: 700;
+  width: fit-content; margin-top: 4px;
+}
+.cbr-step.done .step-badge { background: var(--green); color: #000; }
+
+/* ─── Results Section ───────────────────────────────────────────────────── */
+#results-section { display: none; }
+
+.results-header {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 20px;
+}
+.results-header h2 { font-size: 1.1rem; font-weight: 700; }
+.results-meta { color: var(--muted); font-size: 0.85rem; }
+
+.results-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 16px;
+  margin-bottom: 28px;
+}
+
+/* ─── Film Card ─────────────────────────────────────────────────────────── */
+.film-card {
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: 10px; overflow: hidden;
+  transition: transform .2s, border-color .2s, box-shadow .2s;
+  position: relative; cursor: default;
+  display: flex; flex-direction: column;
+}
+.film-card:hover {
+  transform: translateY(-4px);
+  border-color: #444;
+  box-shadow: 0 12px 32px rgba(0,0,0,.5);
+}
+
+.film-card.liked   { border-color: var(--green) !important; box-shadow: 0 0 0 1px var(--green); }
+.film-card.disliked { border-color: #c0392b !important; box-shadow: 0 0 0 1px #c0392b; opacity: .6; }
+
+.card-poster {
+  height: 140px; background: #0d0d0d;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 3rem; color: #333; position: relative; overflow: hidden;
+}
+.card-poster .poster-overlay {
+  position: absolute; inset: 0;
+  background: linear-gradient(180deg, transparent 40%, var(--card) 100%);
+}
+.score-badge {
+  position: absolute; top: 10px; right: 10px;
+  background: rgba(0,0,0,.8); border: 1px solid var(--border);
+  border-radius: 6px; padding: 3px 8px;
+  font-size: 0.72rem; font-weight: 700; color: var(--gold);
+}
+
+.card-body { padding: 14px; flex: 1; display: flex; flex-direction: column; gap: 6px; }
+.card-title { font-size: 0.9rem; font-weight: 700; line-height: 1.3; }
+.card-genres { font-size: 0.72rem; color: var(--muted); }
+.card-overview { font-size: 0.75rem; color: #666; line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+
+.card-meta {
+  display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px;
+}
+.meta-tag {
+  font-size: 0.68rem; padding: 2px 8px; border-radius: 10px;
+  background: #2a2a2a; color: var(--muted); border: 1px solid #333;
+}
+.meta-tag.cbr  { color: #7eb8f7; border-color: #1a3a5c; background: rgba(126,184,247,.08); }
+.meta-tag.cf   { color: #f7c37e; border-color: #5c3a1a; background: rgba(247,195,126,.08); }
+
+.card-actions { padding: 0 14px 14px; display: flex; gap: 8px; }
+
+.btn-like, .btn-dislike {
+  flex: 1; padding: 8px 0; border: none; border-radius: 6px;
+  font-size: 0.8rem; font-weight: 600; cursor: pointer;
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+  transition: all .2s; font-family: 'Inter', sans-serif;
+}
+.btn-like    { background: rgba(70,211,105,.15); color: var(--green); border: 1px solid rgba(70,211,105,.3); }
+.btn-dislike { background: rgba(229,9,20,.1);   color: #e55; border: 1px solid rgba(229,9,20,.25); }
+.btn-like:hover    { background: rgba(70,211,105,.3); }
+.btn-dislike:hover { background: rgba(229,9,20,.25); }
+.btn-like.selected    { background: var(--green); color: #000; }
+.btn-dislike.selected { background: var(--red);   color: #fff; }
+
+/* ─── Submit Feedback ────────────────────────────────────────────────── */
+.feedback-bar {
+  background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+  padding: 16px 24px;
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 16px; margin-bottom: 40px;
+}
+.feedback-bar p { font-size: 0.88rem; color: var(--muted); }
+.feedback-bar p strong { color: var(--text); }
+
+.btn-retain {
+  background: var(--red); color: #fff; border: none; border-radius: 8px;
+  padding: 10px 28px; font-size: 0.9rem; font-weight: 700;
+  cursor: pointer; display: flex; align-items: center; gap: 8px;
+  transition: background .2s; font-family: 'Inter', sans-serif;
+  white-space: nowrap;
+}
+.btn-retain:hover { background: var(--red-dark); }
+.btn-retain:disabled { background: #555; cursor: not-allowed; }
+
+/* ─── Retain Toast ────────────────────────────────────────────────────── */
+.toast {
+  position: fixed; bottom: 32px; right: 32px; z-index: 999;
+  background: var(--card); border: 1px solid var(--green);
+  border-radius: 10px; padding: 16px 20px;
+  display: flex; align-items: center; gap: 12px;
+  box-shadow: 0 8px 32px rgba(0,0,0,.5);
+  transform: translateY(80px); opacity: 0;
+  transition: all .4s cubic-bezier(.34,1.56,.64,1);
+  max-width: 360px;
+}
+.toast.show { transform: translateY(0); opacity: 1; }
+.toast i { color: var(--green); font-size: 1.3rem; flex-shrink: 0; }
+.toast-body .toast-title { font-weight: 700; font-size: 0.9rem; }
+.toast-body .toast-msg   { font-size: 0.8rem; color: var(--muted); margin-top: 2px; }
+
+/* ─── Case Base Panel ─────────────────────────────────────────────────── */
+.panel-row {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 20px;
+  margin-top: 0;
+}
+
+.panel {
+  background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+  overflow: hidden;
+}
+.panel-head {
+  padding: 16px 20px; border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; gap: 10px;
+}
+.panel-head i { color: var(--red); }
+.panel-head h3 { font-size: 0.88rem; font-weight: 700; }
+.panel-body { padding: 16px 20px; }
+
+.case-item {
+  padding: 10px 0; border-bottom: 1px solid var(--border);
+  display: flex; flex-direction: column; gap: 2px;
+}
+.case-item:last-child { border-bottom: none; }
+.case-item .case-id  { font-size: 0.72rem; color: var(--red); font-weight: 700; }
+.case-item .case-q   { font-size: 0.85rem; font-weight: 500; }
+.case-item .case-meta { font-size: 0.72rem; color: var(--muted); }
+
+.stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.stat-box {
+  background: #111; border: 1px solid var(--border); border-radius: 8px;
+  padding: 14px; text-align: center;
+}
+.stat-box .stat-val { font-size: 1.6rem; font-weight: 900; color: var(--red); }
+.stat-box .stat-lbl { font-size: 0.72rem; color: var(--muted); margin-top: 2px; }
+
+.top-film-item {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 7px 0; border-bottom: 1px solid var(--border); font-size: 0.83rem;
+}
+.top-film-item:last-child { border-bottom: none; }
+.top-film-item .hits {
+  background: var(--red); color: #fff; border-radius: 10px;
+  padding: 2px 10px; font-size: 0.72rem; font-weight: 700; white-space: nowrap;
+}
+
+/* ─── Loading overlay ───────────────────────────────────────────────────── */
+.loading-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,.7);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 200; display: none;
+}
+.loading-overlay.show { display: flex; }
+.loading-spinner {
+  text-align: center; color: var(--text);
+}
+.loading-spinner .spin {
+  font-size: 3rem; color: var(--red); animation: spin 1s linear infinite;
+  display: block; margin: 0 auto 16px;
+}
+@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+.loading-spinner p { font-size: 1rem; color: var(--muted); }
+
+/* ─── Fallback badge ────────────────────────────────────────────────────── */
+.fallback-notice {
+  background: rgba(245, 197, 24, .08); border: 1px solid rgba(245,197,24,.25);
+  border-radius: 8px; padding: 10px 16px;
+  font-size: 0.8rem; color: var(--gold);
+  display: flex; align-items: center; gap: 8px;
+  margin-bottom: 16px; display: none;
+}
+
+/* ─── Responsive ─────────────────────────────────────────────────────────── */
+@media (max-width: 768px) {
+  header { padding: 0 16px; }
+  main   { padding: 20px 16px 60px; }
+  .search-grid { grid-template-columns: 1fr; }
+  .cbr-flow { flex-direction: column; }
+  .cbr-step { border-right: none; border-bottom: 1px solid var(--border); }
+  .cbr-step:last-child { border-bottom: none; }
+  .panel-row { grid-template-columns: 1fr; }
+  .results-grid { grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); }
+}
+</style>
+</head>
+<body>
+
+<!-- ─── Header ─────────────────────────────────────────────────────────────── -->
+<header>
+  <a class="logo" href="/">
+    <i class="fas fa-film"></i>
+    CineCBR
+  </a>
+  <div class="header-right">
+    <div class="stat-pill" id="hdr-cases">
+      <i class="fas fa-database"></i>
+      <span id="hdr-cases-val">—</span> kasus
+    </div>
+    <div class="stat-pill" id="hdr-films">
+      <i class="fas fa-compact-disc"></i>
+      <span id="hdr-films-val">—</span> film
+    </div>
+  </div>
+</header>
+
+<!-- ─── Loading overlay ─────────────────────────────────────────────────────── -->
+<div class="loading-overlay" id="loading">
+  <div class="loading-spinner">
+    <i class="fas fa-circle-notch spin"></i>
+    <p id="loading-msg">Sedang memproses…</p>
+  </div>
+</div>
+
+<!-- ─── Toast ─────────────────────────────────────────────────────────────── -->
+<div class="toast" id="toast">
+  <i class="fas fa-check-circle"></i>
+  <div class="toast-body">
+    <div class="toast-title">Kasus Disimpan!</div>
+    <div class="toast-msg" id="toast-msg">Case base berhasil diperbarui.</div>
+  </div>
+</div>
+
+<!-- ─── Main ────────────────────────────────────────────────────────────────── -->
+<main>
+
+  <!-- Search Section -->
+  <section class="search-section">
+    <h1><i class="fas fa-search" style="color:var(--red);margin-right:8px"></i>Temukan Film</h1>
+    <p>Masukkan deskripsi film yang Anda inginkan. Sertakan film referensi untuk hasil yang lebih akurat.</p>
+
+    <div class="search-grid">
+      <div class="form-group">
+        <label><i class="fas fa-keyboard"></i> &nbsp;Query</label>
+        <div class="input-wrap">
+          <i class="fas fa-search"></i>
+          <input type="text" id="query-input" placeholder="contoh: space exploration sci-fi movie"/>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label><i class="fas fa-star"></i> &nbsp;Film Referensi <span style="color:#555;font-weight:400;">(opsional)</span></label>
+        <div class="input-wrap" style="position:relative;">
+          <i class="fas fa-film"></i>
+          <input type="text" id="ref-input" placeholder="contoh: Interstellar" autocomplete="off"/>
+          <div class="autocomplete-list" id="autocomplete-list"></div>
+        </div>
+      </div>
+
+      <button class="btn-search" id="btn-search" onclick="doSearch()">
+        <i class="fas fa-magic"></i> Rekomendasikan
+      </button>
+    </div>
+  </section>
+
+  <!-- CBR Flow Panel -->
+  <section class="cbr-flow-section">
+    <h2><i class="fas fa-route"></i> &nbsp;Alur CBR (4R Cycle)</h2>
+    <div class="cbr-flow">
+      <div class="cbr-step" id="step-retrieve">
+        <div class="step-header">
+          <div class="step-num">1</div>
+          <div class="step-icon"><i class="fas fa-search"></i></div>
+        </div>
+        <div class="step-name">Retrieve</div>
+        <div class="step-detail" id="detail-retrieve">Cari kasus lama yang mirip</div>
+      </div>
+      <div class="cbr-step" id="step-reuse">
+        <div class="step-header">
+          <div class="step-num">2</div>
+          <div class="step-icon"><i class="fas fa-recycle"></i></div>
+        </div>
+        <div class="step-name">Reuse</div>
+        <div class="step-detail" id="detail-reuse">Ambil solusi dari kasus lama</div>
+      </div>
+      <div class="cbr-step" id="step-revise">
+        <div class="step-header">
+          <div class="step-num">3</div>
+          <div class="step-icon"><i class="fas fa-sliders-h"></i></div>
+        </div>
+        <div class="step-name">Revise</div>
+        <div class="step-detail" id="detail-revise">Berikan feedback Like / Dislike</div>
+      </div>
+      <div class="cbr-step" id="step-retain">
+        <div class="step-header">
+          <div class="step-num">4</div>
+          <div class="step-icon"><i class="fas fa-save"></i></div>
+        </div>
+        <div class="step-name">Retain</div>
+        <div class="step-detail" id="detail-retain">Simpan kasus baru ke case base</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Results Section -->
+  <section id="results-section">
+
+    <div class="fallback-notice" id="fallback-notice">
+      <i class="fas fa-exclamation-triangle"></i>
+      <span>Menggunakan <strong>Content-Based Fallback</strong> — case base belum cukup kasus mirip di atas threshold.</span>
+    </div>
+
+    <div class="results-header">
+      <h2 id="results-title">Rekomendasi untuk Anda</h2>
+      <div class="results-meta" id="results-meta"></div>
+    </div>
+
+    <div class="results-grid" id="results-grid"></div>
+
+    <div class="feedback-bar">
+      <p>Pilih <strong><i class="fas fa-thumbs-up" style="color:var(--green)"></i> Like</strong> atau <strong><i class="fas fa-thumbs-down" style="color:#e55"></i> Dislike</strong> pada film di atas, lalu simpan ke case base.</p>
+      <button class="btn-retain" id="btn-retain" onclick="doRetain()">
+        <i class="fas fa-save"></i> Simpan ke Case Base
+      </button>
+    </div>
+
+  </section>
+
+  <!-- Bottom Panels -->
+  <div class="panel-row">
+
+    <!-- Stats -->
+    <div class="panel">
+      <div class="panel-head">
+        <i class="fas fa-chart-bar"></i>
+        <h3>Statistik Case Base</h3>
+      </div>
+      <div class="panel-body">
+        <div class="stats-grid" id="stats-grid">
+          <div class="stat-box"><div class="stat-val" id="s-total">—</div><div class="stat-lbl">Total Kasus</div></div>
+          <div class="stat-box"><div class="stat-val" id="s-films">—</div><div class="stat-lbl">Total Film</div></div>
+          <div class="stat-box"><div class="stat-val" id="s-seeds">—</div><div class="stat-lbl">Seed Cases</div></div>
+          <div class="stat-box"><div class="stat-val" id="s-user">—</div><div class="stat-lbl">User Cases</div></div>
+        </div>
+        <hr style="border-color:var(--border);margin:16px 0"/>
+        <div style="font-size:.78rem;color:var(--muted);font-weight:700;letter-spacing:1px;text-transform:uppercase;margin-bottom:10px;">
+          <i class="fas fa-fire" style="color:var(--red)"></i> &nbsp;Film Paling Diterima
+        </div>
+        <div id="top-films"></div>
+      </div>
+    </div>
+
+    <!-- Recent Cases -->
+    <div class="panel">
+      <div class="panel-head">
+        <i class="fas fa-history"></i>
+        <h3>Kasus Terbaru</h3>
+      </div>
+      <div class="panel-body" id="recent-cases">
+        <p style="color:var(--muted);font-size:.85rem;">Memuat…</p>
+      </div>
+    </div>
+
+  </div>
+
+</main>
+
+<script>
+// ─── State ────────────────────────────────────────────────────────────────────
+let currentSession = null;
+let feedbacks = {}; // movieId → 'like' | 'dislike'
+
+// ─── Helpers ────────────────────────────────────────────────────────────────
+function showLoading(msg = 'Sedang memproses…') {
+  document.getElementById('loading-msg').textContent = msg;
+  document.getElementById('loading').classList.add('show');
+}
+function hideLoading() {
+  document.getElementById('loading').classList.remove('show');
+}
+
+function setStep(stepId, state) {
+  // state: 'idle' | 'active' | 'done'
+  const el = document.getElementById(stepId);
+  el.classList.remove('active', 'done');
+  if (state === 'active') el.classList.add('active');
+  if (state === 'done')   el.classList.add('done');
+}
+
+function resetSteps() {
+  ['step-retrieve','step-reuse','step-revise','step-retain'].forEach(s => setStep(s,'idle'));
+  document.getElementById('detail-retrieve').textContent = 'Cari kasus lama yang mirip';
+  document.getElementById('detail-reuse').textContent    = 'Ambil solusi dari kasus lama';
+  document.getElementById('detail-revise').textContent   = 'Berikan feedback Like / Dislike';
+  document.getElementById('detail-retain').textContent   = 'Simpan kasus baru ke case base';
+  // Remove step badges
+  document.querySelectorAll('.step-badge').forEach(b => b.remove());
+}
+
+function addBadge(detailId, text) {
+  const parent = document.getElementById(detailId).parentElement;
+  const old    = parent.querySelector('.step-badge');
+  if (old) old.remove();
+  const badge = document.createElement('div');
+  badge.className = 'step-badge';
+  badge.innerHTML = text;
+  parent.appendChild(badge);
+}
+
+function showToast(msg) {
+  document.getElementById('toast-msg').textContent = msg;
+  const t = document.getElementById('toast');
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 4000);
+}
+
+function genreIcon(genres) {
+  const g = (genres || '').toLowerCase();
+  if (g.includes('action'))    return '<i class="fas fa-bolt"></i>';
+  if (g.includes('comedy'))    return '<i class="fas fa-laugh"></i>';
+  if (g.includes('horror'))    return '<i class="fas fa-ghost"></i>';
+  if (g.includes('romance'))   return '<i class="fas fa-heart"></i>';
+  if (g.includes('sci-fi') || g.includes('science')) return '<i class="fas fa-rocket"></i>';
+  if (g.includes('animation')) return '<i class="fas fa-wand-magic-sparkles"></i>';
+  if (g.includes('crime'))     return '<i class="fas fa-user-secret"></i>';
+  if (g.includes('thriller'))  return '<i class="fas fa-mask"></i>';
+  if (g.includes('drama'))     return '<i class="fas fa-theater-masks"></i>';
+  return '<i class="fas fa-film"></i>';
+}
+
+// ─── Autocomplete ──────────────────────────────────────────────────────────
+let acTimer = null;
+document.getElementById('ref-input').addEventListener('input', function() {
+  clearTimeout(acTimer);
+  const q = this.value.trim();
+  const list = document.getElementById('autocomplete-list');
+  if (q.length < 2) { list.classList.remove('open'); return; }
+  acTimer = setTimeout(async () => {
+    const res  = await fetch(`/api/movies?q=${encodeURIComponent(q)}`);
+    const data = await res.json();
+    list.innerHTML = '';
+    if (!data.length) { list.classList.remove('open'); return; }
+    data.forEach(m => {
+      const div = document.createElement('div');
+      div.className = 'autocomplete-item';
+      div.innerHTML = `${m.title} <span class="genre-tag">${m.genres || ''}</span>`;
+      div.onclick   = () => {
+        document.getElementById('ref-input').value = m.title;
+        list.classList.remove('open');
+      };
+      list.appendChild(div);
+    });
+    list.classList.add('open');
+  }, 250);
+});
+
+document.addEventListener('click', e => {
+  if (!e.target.closest('.input-wrap'))
+    document.getElementById('autocomplete-list').classList.remove('open');
+});
+
+// ─── Search ─────────────────────────────────────────────────────────────────
+async function doSearch() {
+  const query = document.getElementById('query-input').value.trim();
+  const ref   = document.getElementById('ref-input').value.trim();
+  if (!query) {
+    document.getElementById('query-input').focus();
+    return;
+  }
+
+  feedbacks = {};
+  currentSession = null;
+  resetSteps();
+  document.getElementById('results-section').style.display = 'none';
+  document.getElementById('fallback-notice').style.display = 'none';
+
+  showLoading('Mencari kasus mirip (Retrieve)…');
+  setStep('step-retrieve', 'active');
+
+  try {
+    const res  = await fetch('/api/recommend', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query_text: query, reference_movie: ref || null, top_k: 5 })
+    });
+    const data = await res.json();
+
+    if (data.error) { alert('Error: ' + data.error); hideLoading(); resetSteps(); return; }
+
+    currentSession = data;
+
+    // ── Update CBR flow ──────────────────────────────────
+    const r = data.retrieve;
+    if (r.used_fallback) {
+      setStep('step-retrieve', 'done');
+      document.getElementById('detail-retrieve').textContent = 'Tidak ada kasus mirip (fallback CBF)';
+      addBadge('detail-retrieve', '<i class="fas fa-exclamation-triangle"></i> Fallback');
+      document.getElementById('fallback-notice').style.display = 'flex';
+    } else {
+      setStep('step-retrieve', 'done');
+      document.getElementById('detail-retrieve').textContent = `${r.cases_found} kasus ditemukan`;
+      addBadge('detail-retrieve', `<i class="fas fa-check"></i> ${r.cases_found} kasus`);
+    }
+
+    showLoading('Menggunakan solusi kasus lama (Reuse)…');
+    setTimeout(() => {
+      setStep('step-reuse', 'done');
+      document.getElementById('detail-reuse').textContent = `${data.recommendations.length} kandidat setelah agregasi`;
+      addBadge('detail-reuse', `<i class="fas fa-list"></i> ${data.recommendations.length} film`);
+      setStep('step-revise', 'active');
+      document.getElementById('detail-revise').textContent = 'Tunggu feedback Anda…';
+
+      renderResults(data);
+      document.getElementById('results-section').style.display = 'block';
+      document.getElementById('results-section').scrollIntoView({ behavior: 'smooth', block: 'start' });
+      hideLoading();
+    }, 600);
+
+  } catch(err) {
+    console.error(err);
+    alert('Terjadi kesalahan. Pastikan server berjalan.');
+    hideLoading(); resetSteps();
+  }
+}
+
+// ─── Render Results ──────────────────────────────────────────────────────────
+function renderResults(data) {
+  const grid = document.getElementById('results-grid');
+  grid.innerHTML = '';
+
+  const refTitle = data.ref_title || '—';
+  document.getElementById('results-title').textContent = `Rekomendasi: "${data.query_text}"`;
+
+  const topCase = data.retrieve.top_case;
+  document.getElementById('results-meta').textContent = topCase
+    ? `Case terdekat: #${topCase.case_id} (sim=${topCase.similarity})`
+    : 'Menggunakan Content-Based Fallback';
+
+  data.recommendations.forEach(film => {
+    const card = document.createElement('div');
+    card.className = 'film-card';
+    card.id = `card-${film.movieId}`;
+
+    const fromCases = (film.from_cases || []).join(', ') || '—';
+    const icon = genreIcon(film.genres);
+
+    card.innerHTML = `
+      <div class="card-poster">
+        <span>${icon}</span>
+        <div class="poster-overlay"></div>
+        <div class="score-badge">${(film.final_score * 100).toFixed(0)}%</div>
+      </div>
+      <div class="card-body">
+        <div class="card-title">${film.title}</div>
+        <div class="card-genres">${film.genres || '—'}</div>
+        <div class="card-overview">${film.overview || ''}</div>
+        <div class="card-meta">
+          <span class="meta-tag cbr" title="Case Similarity Score">
+            <i class="fas fa-layer-group"></i> CBR ${(film.case_score * 100).toFixed(0)}%
+          </span>
+          <span class="meta-tag cf" title="CF Score">
+            <i class="fas fa-users"></i> CF ${(film.cf_score * 100).toFixed(0)}%
+          </span>
+          ${film.from_cases && film.from_cases.length > 0
+            ? `<span class="meta-tag" title="Diambil dari kasus"><i class="fas fa-link"></i> Case #${film.from_cases[0]}</span>`
+            : ''}
+        </div>
+      </div>
+      <div class="card-actions">
+        <button class="btn-like" id="like-${film.movieId}" onclick="setFeedback(${film.movieId},'like')">
+          <i class="fas fa-thumbs-up"></i> Like
+        </button>
+        <button class="btn-dislike" id="dis-${film.movieId}" onclick="setFeedback(${film.movieId},'dislike')">
+          <i class="fas fa-thumbs-down"></i> Dislike
+        </button>
+      </div>
+    `;
+    grid.appendChild(card);
+  });
+}
+
+// ─── Feedback ────────────────────────────────────────────────────────────────
+function setFeedback(movieId, type) {
+  feedbacks[movieId] = type;
+
+  const card = document.getElementById(`card-${movieId}`);
+  card.classList.remove('liked', 'disliked');
+  card.classList.add(type === 'like' ? 'liked' : 'disliked');
+
+  document.getElementById(`like-${movieId}`).classList.toggle('selected', type === 'like');
+  document.getElementById(`dis-${movieId}`).classList.toggle('selected', type === 'dislike');
+}
+
+// ─── Retain ──────────────────────────────────────────────────────────────────
+async function doRetain() {
+  if (!currentSession) return;
+
+  const accepted = Object.entries(feedbacks).filter(([,v]) => v === 'like').map(([k]) => parseInt(k));
+  const rejected = Object.entries(feedbacks).filter(([,v]) => v === 'dislike').map(([k]) => parseInt(k));
+
+  if (accepted.length === 0 && rejected.length === 0) {
+    alert('Berikan setidaknya satu feedback (Like atau Dislike) sebelum menyimpan.');
+    return;
+  }
+
+  setStep('step-retain', 'active');
+  document.getElementById('detail-retain').textContent = 'Menyimpan kasus baru…';
+  document.getElementById('btn-retain').disabled = true;
+  showLoading('Menyimpan kasus ke case base (Retain)…');
+
+  try {
+    const res  = await fetch('/api/feedback', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        session_id:   currentSession.session_id,
+        accepted_ids: accepted,
+        rejected_ids: rejected,
+      })
+    });
+    const data = await res.json();
+    hideLoading();
+
+    if (data.error) { alert('Error: ' + data.error); return; }
+
+    setStep('step-revise', 'done');
+    document.getElementById('detail-revise').textContent = `${accepted.length} diterima, ${rejected.length} ditolak`;
+    addBadge('detail-revise', `<i class="fas fa-check"></i> ${accepted.length}👍 ${rejected.length}👎`);
+
+    setStep('step-retain', 'done');
+    document.getElementById('detail-retain').textContent = `Kasus #${data.case_id} berhasil disimpan`;
+    addBadge('detail-retain', `<i class="fas fa-database"></i> Case #${data.case_id}`);
+
+    showToast(`Kasus #${data.case_id} disimpan. ${data.accepted} film diterima, ${data.rejected} ditolak.`);
+
+    currentSession = null;
+    feedbacks = {};
+    loadStats();
+    loadRecentCases();
+
+  } catch(err) {
+    console.error(err);
+    hideLoading();
+    alert('Gagal menyimpan. Coba lagi.');
+    document.getElementById('btn-retain').disabled = false;
+  }
+}
+
+// ─── Load Stats ───────────────────────────────────────────────────────────────
+async function loadStats() {
+  try {
+    const res  = await fetch('/api/stats');
+    const data = await res.json();
+
+    document.getElementById('s-total').textContent = data.total_cases;
+    document.getElementById('s-films').textContent = data.total_films;
+    document.getElementById('s-seeds').textContent = data.seed_cases;
+    document.getElementById('s-user').textContent  = data.user_cases;
+    document.getElementById('hdr-cases-val').textContent = data.total_cases;
+    document.getElementById('hdr-films-val').textContent = data.total_films;
+
+    const tf = document.getElementById('top-films');
+    tf.innerHTML = '';
+    (data.top_accepted || []).forEach(f => {
+      const div = document.createElement('div');
+      div.className = 'top-film-item';
+      div.innerHTML = `<span>${f.title}</span><span class="hits">${f.hits}×</span>`;
+      tf.appendChild(div);
+    });
+    if (!data.top_accepted?.length) tf.innerHTML = '<p style="color:var(--muted);font-size:.8rem;">Belum ada data.</p>';
+  } catch(e) { console.warn('loadStats error', e); }
+}
+
+async function loadRecentCases() {
+  try {
+    const res  = await fetch('/api/cases?limit=6');
+    const data = await res.json();
+    const el   = document.getElementById('recent-cases');
+    el.innerHTML = '';
+    if (!data.length) {
+      el.innerHTML = '<p style="color:var(--muted);font-size:.85rem;">Belum ada kasus.</p>';
+      return;
+    }
+    data.forEach(c => {
+      const div = document.createElement('div');
+      div.className = 'case-item';
+      const ts = c.timestamp ? c.timestamp.split('T')[0] : '—';
+      const src = c.from_case_id ? `CBR #${c.from_case_id}` : 'Fallback';
+      div.innerHTML = `
+        <div class="case-id">Case #${c.case_id} &nbsp;·&nbsp; ${ts} &nbsp;·&nbsp; ${src}</div>
+        <div class="case-q">"${c.query}"</div>
+        <div class="case-meta">
+          ${c.ref_title ? `Ref: ${c.ref_title} · ` : ''}
+          ✅ ${(c.accepted||[]).length} &nbsp;&nbsp; ❌ ${(c.rejected||[]).length}
+        </div>
+      `;
+      el.appendChild(div);
+    });
+  } catch(e) { console.warn('loadRecentCases error', e); }
+}
+
+// ─── Enter key ────────────────────────────────────────────────────────────────
+document.getElementById('query-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter') doSearch();
+});
+
+// ─── Init ─────────────────────────────────────────────────────────────────────
+loadStats();
+loadRecentCases();
+</script>
+</body>
+</html>

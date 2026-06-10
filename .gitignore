@@ -10,3 +10,5 @@ venv/
 *.log
 node_modules/
 dataset/
+models/
+output/
