@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CineCBR - Your Intelligent Movie Platform</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <nav class="navbar">
+        <div class="logo">Cine<span class="highlight">CBR</span></div>
+        <div class="user-control">
+            <i class="fa-solid fa-user-circle"></i>
+            <input type="number" id="userIdInput" placeholder="User ID" min="1" title="Enter User ID for Personalized Recommendations">
+        </div>
+    </nav>
+
+    <div class="hero">
+        <div class="hero-overlay"></div>
+        <div class="hero-content">
+            <h1>Find the perfect movie.</h1>
+            <p>Tell us what you want to watch or a movie you like. Our AI will do the rest.</p>
+            <div class="search-box">
+                <i class="fa-solid fa-search"></i>
+                <input type="text" id="queryInput" placeholder="e.g. A space adventure like Interstellar..." autocomplete="off">
+                <button id="searchBtn">Discover</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="container">
+        <section id="resultsSection" class="hidden">
+            <div class="section-header">
+                <h2>Top Picks For You</h2>
+                <button id="finishBtn" class="btn hidden">Submit Feedback & Retain</button>
+            </div>
+            
+            <div id="loadingIndicator" class="hidden">
+                <div class="loader"></div>
+                <p>Analyzing cases...</p>
+            </div>
+            
+            <div id="moviesGrid" class="movies-grid"></div>
+        </section>
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>

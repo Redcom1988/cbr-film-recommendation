@@ -1,0 +1,7 @@
+pandas
+scikit-learn
+faiss-cpu
+scikit-surprise
+rapidfuzz
+nltk
+flask
