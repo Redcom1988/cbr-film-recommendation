@@ -1,0 +1,20 @@
+{
+  "rmse": 2.723,
+  "mae": 2.4934,
+  "precision_at_5": 0.0,
+  "recall_at_5": 0.0,
+  "coverage": 1.0,
+  "users_evaluated": 100,
+  "test_size": 19134,
+  "train_size": 77807,
+  "split_ratio": "80/20",
+  "details": {
+    "total_ratings": 96941,
+    "total_users": 671,
+    "total_movies_rated": 6003,
+    "total_movies_db": 42289,
+    "cf_predictions_evaluated": 19033,
+    "cf_predictions_skipped": 101,
+    "covered_movies": 42289
+  }
+}

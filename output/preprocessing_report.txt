@@ -1,0 +1,12 @@
+=== LAPORAN PREPROCESSING ===
+
+Dataset ratings  : dataset/ratings_small.csv
+Dataset movies   : dataset/movies_metadata.csv
+Min rating/user  : 2
+Min rating/film  : 2
+
+Film setelah preprocessing : 42319
+Rating setelah filter     : 96941
+Baris setelah join        : 43936
+User unik                 : 671
+Film unik (di rating)     : 6003
