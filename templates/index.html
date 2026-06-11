@@ -590,6 +590,24 @@ input::placeholder { color: #555; }
 
   </div>
 
+  <!-- All Cases Panel -->
+  <section class="all-cases-section" style="margin-top: 32px;">
+    <div class="panel">
+      <div class="panel-head">
+        <i class="fas fa-list"></i>
+        <h3>Semua Kasus dalam Case Base</h3>
+        <button class="btn-search" style="padding: 6px 16px; font-size: 0.85rem; margin-left: auto;" onclick="loadAllCases()">
+          <i class="fas fa-download"></i> Tampilkan Semua
+        </button>
+      </div>
+      <div class="panel-body">
+        <div id="all-cases-list" style="max-height: 400px; overflow-y: auto; padding-right: 10px;">
+          <p style="color:var(--muted);font-size:.85rem;">Klik tombol "Tampilkan Semua" untuk memuat daftar seluruh kasus.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
 </main>
 
 <script>
@@ -930,6 +948,38 @@ async function loadRecentCases() {
 document.getElementById('query-input').addEventListener('keydown', e => {
   if (e.key === 'Enter') doSearch();
 });
+
+async function loadAllCases() {
+  const el = document.getElementById('all-cases-list');
+  el.innerHTML = '<p style="color:var(--muted);font-size:.85rem;">Memuat seluruh kasus...</p>';
+  try {
+    const res  = await fetch('/api/cases?limit=10000');
+    const data = await res.json();
+    el.innerHTML = '';
+    if (!data.length) {
+      el.innerHTML = '<p style="color:var(--muted);font-size:.85rem;">Belum ada kasus di database.</p>';
+      return;
+    }
+    data.forEach(c => {
+      const div = document.createElement('div');
+      div.className = 'case-item';
+      const ts = c.timestamp ? c.timestamp.split('T')[0] : '—';
+      const src = c.from_case_id ? `CBR #${c.from_case_id}` : 'Fallback';
+      div.innerHTML = `
+        <div class="case-id">Case #${c.case_id} &nbsp;·&nbsp; ${ts} &nbsp;·&nbsp; ${src}</div>
+        <div class="case-q">"${c.query}"</div>
+        <div class="case-meta">
+          ${c.ref_title ? `Ref: ${c.ref_title} · ` : ''}
+          ✅ ${(c.accepted||[]).length} &nbsp;&nbsp; ❌ ${(c.rejected||[]).length}
+        </div>
+      `;
+      el.appendChild(div);
+    });
+  } catch(e) { 
+      console.warn('loadAllCases error', e); 
+      el.innerHTML = '<p style="color:red;font-size:.85rem;">Gagal memuat data.</p>';
+  }
+}
 
 // ─── Init ─────────────────────────────────────────────────────────────────────
 loadStats();

@@ -6,14 +6,55 @@ Berbeda dengan sistem rekomendasi tradisional yang berfokus pada kemiripan antar
 
 ---
 
-## 🚀 Paradigma CBR (4R Cycle)
+## 🚀 Paradigma & Siklus CBR (Dari Indexing hingga Retain)
 
-Alur kerja sistem rekomendasi diimplementasikan secara utuh mengikuti siklus 4R CBR:
+Alur kerja sistem rekomendasi diimplementasikan secara utuh dengan memadukan pencarian vektor cepat (**FAISS**), database relasional (**SQLite**), dan siklus **4R CBR (Case-Based Reasoning)**. Berikut adalah alur lengkap proses dari pembentukan indeks hingga penyimpanan kasus:
 
-1. **Retrieve**: Mencari Top-K kasus lama yang paling mirip dengan query pengguna (`query_text`, `reference_movie`, `genres`). Proses ini menggunakan case embedding yang diindeks dengan **FAISS** (`case_index.faiss`) untuk pencarian kemiripan kosinus (TF-IDF) secara instan.
-2. **Reuse**: Mengambil solusi (`accepted_ids` / film yang disukai) dari kasus lama yang mirip, menormalkannya, lalu mengombinasikannya dengan prediksi rating **SVD Collaborative Filtering** (MovieLens Small) untuk menghasilkan ranking rekomendasi akhir.
-3. **Revise**: Pengguna memberikan umpan balik secara langsung melalui Web UI dengan menyukai (👍 **Like**) atau tidak menyukai (👎 **Dislike**) film yang direkomendasikan.
-4. **Retain**: Menyimpan interaksi baru tersebut sebagai kasus baru ke dalam database (`retained_cases`) dan memperbarui index FAISS secara dinamis agar sistem menjadi lebih cerdas pada pencarian berikutnya.
+### 0. Tahap Indexing (Offline Setup & Dynamic Update)
+Sebelum siklus CBR berjalan, sistem melakukan persiapan representasi data:
+*   **Movie Indexing**: Menghitung representasi TF-IDF gabungan genre dan sinopsis untuk semua film, kemudian menyimpannya ke `movie_index.faiss`. Ini digunakan untuk menghitung kemiripan antar-film secara cepat.
+*   **Case Indexing**: Membangun indeks kasus awal (`case_index.faiss`) menggunakan teks representasi kasus:
+    $$\text{case\_text} = \text{query\_text} + (\text{genres} \times 3) + \text{title\_film\_ref}$$
+*   **Dynamic Update**: Setiap kali ada kasus baru yang disimpan pada tahap **Retain**, vektor kasus baru langsung ditambahkan ke dalam indeks FAISS aktif (`case_index.faiss`) secara *real-time* tanpa perlu melatih ulang dari awal.
+
+---
+
+### 1. Retrieve (Pencarian Kasus Serupa)
+Ketika pengguna memasukkan pencarian berupa teks kueri dan/atau memilih film referensi:
+1.  **Vektorisasi**: Input pengguna diubah menjadi vektor menggunakan model TF-IDF yang telah dilatih.
+2.  **Pencarian FAISS**: Indeks `case_index.faiss` digunakan untuk mencari $K$ kasus terdekat secara instan menggunakan pencarian *Cosine Similarity*.
+3.  **Perhitungan Kemiripan Kasus (Case Similarity)**: Nilai kemiripan kasus dihitung secara detail dengan formula pembobotan gabungan:
+    $$\text{Similarity} = \frac{0.50 \times \text{Sim}_{\text{query}} + 0.30 \times \text{Sim}_{\text{movie}} + 0.20 \times \text{Sim}_{\text{genre}}}{\text{Total Bobot Aktif}}$$
+    *   $\text{Sim}_{\text{query}}$: Kemiripan kosinus antara teks kueri baru vs kueri kasus lama.
+    *   $\text{Sim}_{\text{movie}}$: Kemiripan kosinus film referensi di `movie_index.faiss`.
+    *   $\text{Sim}_{\text{genre}}$: Jaccard overlap dari genre film referensi.
+4.  **Threshold & Fallback**: Hanya kasus dengan kemiripan $\ge 0.30$ yang dipertahankan. Jika tidak ada kasus yang memenuhi batas minimal (atau jumlah basis data kurang dari 10 kasus), sistem akan melakukan **fallback** ke pencarian langsung menggunakan Content-Based Filtering (CBF) pada `movie_index.faiss`.
+
+---
+
+### 2. Reuse (Agregasi & Perangkingan Ulang)
+Kasus-kasus mirip yang lolos seleksi kemudian digunakan untuk merekomendasikan solusi:
+1.  **Agregasi Skor**: Film-film yang disukai (`accepted_ids`) dari kasus-kasus mirip tersebut diekstrak. Skornya diakumulasikan berdasarkan kemiripan kasusnya:
+    $$\text{Score}_{\text{kandidat}}(f) = \sum_{c \in \text{Cases}} \text{Sim}(c) \quad \text{untuk setiap } f \in \text{accepted\_ids}(c)$$
+2.  **Penalti Kasus Ditolak**: Jika film kandidat tersebut juga muncul di daftar ditolak (`rejected_ids`) kasus mirip lainnya, skornya dikurangi sebagai penalti agar kesalahan rekomendasi lama tidak diulangi.
+3.  **Normalisasi & Hybrid Re-ranking**: Skor kandidat dinormalisasi ke rentang $[0, 1]$. Jika pengguna dikenali (bukan *cold-start*), skor ini digabungkan dengan skor dari model **SVD Collaborative Filtering**:
+    $$\text{Skor Akhir} = 0.70 \times \text{Skor Kasus} + 0.30 \times \text{Skor SVD}$$
+    Untuk pengguna baru (*cold-start*), bobot kasus adalah $1.00$ sepenuhnya.
+
+---
+
+### 3. Revise (Umpan Balik Pengguna)
+Rekomendasi ditampilkan di Web UI. Pengguna merevisi solusi rekomendasi secara langsung dengan memberikan umpan balik:
+*   👍 **Like** (atau rating tinggi 3-5 bintang) $\rightarrow$ Film dimasukkan ke daftar **`accepted_ids`**.
+*   👎 **Dislike** (atau rating rendah 1-2 bintang) $\rightarrow$ Film dimasukkan ke daftar **`rejected_ids`**.
+
+---
+
+### 4. Retain (Penyimpanan & Pembelajaran)
+Setelah sesi interaksi pengguna selesai:
+1.  **Simpan Kasus**: Kasus interaksi baru beserta preferensi (kueri, film referensi, rekomendasi, accepted, rejected) disimpan ke dalam database SQLite `retained_cases`.
+2.  **Perbarui Indeks**: Vektor kasus baru tersebut dihitung dan langsung disisipkan ke indeks FAISS aktif (`case_index.faiss`), serta daftar ID kasus (`case_ids.pkl`) diperbarui.
+3.  **Siap Dipakai Kembali**: Pada pencarian berikutnya, kasus yang baru saja disimpan ini sudah siap untuk di-*retrieve* dan menjadi referensi baru bagi pengguna lain.
 
 ---
 
