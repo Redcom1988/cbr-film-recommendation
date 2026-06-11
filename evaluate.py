@@ -5,6 +5,7 @@ Phase 6: Evaluasi sistem CBR.
   - Hitung Precision@K, Recall@K, NDCG@K
 Jalankan: python evaluate.py --k 5
 """
+
 import argparse
 import json
 import math
@@ -20,10 +21,10 @@ def dcg(rel: list[int], k: int) -> float:
 
 
 def ndcg(recommended: list[int], relevant: set[int], k: int) -> float:
-    rel    = [1 if mid in relevant else 0 for mid in recommended[:k]]
-    ideal  = sorted(rel, reverse=True)
-    d      = dcg(rel, k)
-    id_    = dcg(ideal, k)
+    rel = [1 if mid in relevant else 0 for mid in recommended[:k]]
+    ideal = sorted(rel, reverse=True)
+    d = dcg(rel, k)
+    id_ = dcg(ideal, k)
     return d / id_ if id_ > 0 else 0.0
 
 
@@ -40,17 +41,17 @@ def recall_at_k(recommended: list[int], relevant: set[int], k: int) -> float:
 
 
 def evaluate(k: int = 5, test_split: float = 0.2):
-    print("\n" + "="*55)
+    print("\n" + "=" * 55)
     print(f" Evaluasi CBR Recommender  |  @K={k}  |  test={test_split:.0%}")
-    print("="*55)
+    print("=" * 55)
 
     # ── Ambil seed cases dari DB ──────────────────────────
     conn = sqlite3.connect("models/cases.db")
     conn.row_factory = sqlite3.Row
     rows = conn.execute("""
-        SELECT case_id, query_text, reference_movie, accepted_ids
+        SELECT case_id, query_text, reference_movie, accepted_ids, user_id
         FROM   retained_cases
-        WHERE  user_id IS NULL AND from_case_id IS NULL
+        WHERE  from_case_id IS NULL
         ORDER  BY case_id
     """).fetchall()
     conn.close()
@@ -63,10 +64,10 @@ def evaluate(k: int = 5, test_split: float = 0.2):
 
     # ── Split ─────────────────────────────────────────────
     random.seed(42)
-    shuffled  = list(rows)
+    shuffled = list(rows)
     random.shuffle(shuffled)
-    n_test    = max(1, int(len(shuffled) * test_split))
-    test_set  = shuffled[:n_test]
+    n_test = max(1, int(len(shuffled) * test_split))
+    test_set = shuffled[:n_test]
     train_set = shuffled[n_test:]
 
     print(f"Train: {len(train_set)} | Test: {len(test_set)}")
@@ -79,17 +80,19 @@ def evaluate(k: int = 5, test_split: float = 0.2):
     skip = 0
 
     for test_case in test_set:
-        accepted    = json.loads(test_case['accepted_ids'] or '[]')
-        relevant    = set(int(x) for x in accepted)
+        accepted = json.loads(test_case["accepted_ids"] or "[]")
+        relevant = set(int(x) for x in accepted)
         if not relevant:
             skip += 1
             continue
 
-        ref_movie   = test_case['reference_movie']
-        query       = test_case['query_text']
+        ref_movie = test_case["reference_movie"]
+        query = test_case["query_text"]
 
-        result      = rec.recommend(query, reference_movie=ref_movie, user_id=None, top_k=k)
-        recommended = [r['movieId'] for r in result['recommendations']]
+        result = rec.recommend(
+            query, reference_movie=ref_movie, user_id=test_case["user_id"], top_k=k
+        )
+        recommended = [r["movieId"] for r in result["recommendations"]]
 
         p_scores.append(precision_at_k(recommended, relevant, k))
         r_scores.append(recall_at_k(recommended, relevant, k))
@@ -104,24 +107,29 @@ def evaluate(k: int = 5, test_split: float = 0.2):
     r_mean = sum(r_scores) / evaluated
     n_mean = sum(n_scores) / evaluated
 
-    conn2  = sqlite3.connect("models/cases.db")
-    n_all  = conn2.execute("SELECT COUNT(*) FROM retained_cases").fetchone()[0]
+    conn2 = sqlite3.connect("models/cases.db")
+    n_all = conn2.execute("SELECT COUNT(*) FROM retained_cases").fetchone()[0]
     conn2.close()
 
-    print("\n" + "-"*40)
+    print("\n" + "-" * 40)
     print(f"  Precision@{k}   : {p_mean:.4f}")
     print(f"  Recall@{k}      : {r_mean:.4f}")
     print(f"  NDCG@{k}        : {n_mean:.4f}")
     print(f"  Evaluasi       : {evaluated} kasus ({skip} dilewati)")
     print(f"  Case base size : {n_all} kasus")
-    print("-"*40)
+    print("-" * 40)
 
-    return {"precision": p_mean, "recall": r_mean, "ndcg": n_mean, "evaluated": evaluated}
+    return {
+        "precision": p_mean,
+        "recall": r_mean,
+        "ndcg": n_mean,
+        "evaluated": evaluated,
+    }
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--k",          type=int,   default=5)
+    parser.add_argument("--k", type=int, default=5)
     parser.add_argument("--test_split", type=float, default=0.2)
     args = parser.parse_args()
     evaluate(k=args.k, test_split=args.test_split)
