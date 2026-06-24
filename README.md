@@ -145,3 +145,30 @@ Untuk memulai web server Flask:
 python app.py
 ```
 Aplikasi akan berjalan di [http://localhost:5001](http://localhost:5001).
+
+---
+
+## 🔧 Perubahan Terbaru
+
+### 1. Persistent User ID (Multi-User Support)
+- Sebelumnya: `user_id` tidak pernah dikirim dari frontend — semua kasus tersimpan sebagai seed case (`user_id = NULL`).
+- Sekarang: Setiap browser mendapat `user_id` unik yang disimpan di `localStorage`, dikirim otomatis di setiap request.
+- Dampak: Kasus yang disimpan terkait dengan user tertentu, memungkinkan CF Score dan riwayat pribadi.
+
+### 2. Fallback CBF — Label Akurat
+- Saat case base belum cukup, sistem jatuh ke Content-Based Filtering (TF-IDF + FAISS).
+- **CBF** (bukan CBR) ditampilkan di kartu rekomendasi, dengan `cf_score = 0`.
+- Bobot `W_COLD = (1.0, 0.0, 0.0)` — murni content similarity.
+
+### 3. Overview Placeholder Dibersihkan
+- Dataset TMDB menyimpan `"No overview found."`, `"overview found"`, `"overview yet"`, dll. untuk film tanpa sinopsis.
+- Method `_clean_overview()` menyaring placeholder tersebut menjadi string kosong.
+
+### 4. Novelty Penalty Diperkuat (85%)
+- Sebelumnya: 35% — belum cukup menggeser film yang sudah pernah di-like.
+- Sekarang: 85% — film yang sudah pernah di-accept user turun ke 15% skor asli.
+- Mencegah positive feedback loop tanpa hard-exclusion.
+
+### 5. Fix Shape FAISS
+- `faiss.search()` dan `faiss.add()` membutuhkan array 2D `(n, d)`.
+- `_vec()` mengembalikan 1D via `.ravel()`, ditambahkan `.reshape(1, -1)` di semua pemanggilan.

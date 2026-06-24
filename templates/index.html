@@ -666,13 +666,13 @@ function setStep(stepId, state) {
 }
 
 function resetSteps() {
-  ['step-retrieve','step-reuse','step-revise','step-retain'].forEach(s => setStep(s,'idle'));
+  ['step-retrieve','step-reuse','step-revise','step-retain'].forEach(id => setStep(id, ''));
   document.getElementById('detail-retrieve').textContent = 'Cari kasus lama yang mirip';
   document.getElementById('detail-reuse').textContent    = 'Ambil solusi dari kasus lama';
   document.getElementById('detail-revise').textContent   = 'Berikan feedback Like / Dislike';
   document.getElementById('detail-retain').textContent   = 'Simpan kasus baru ke case base';
-  // Remove step badges
   document.querySelectorAll('.step-badge').forEach(b => b.remove());
+  document.getElementById('btn-retain').disabled = false;
 }
 
 function addBadge(detailId, text) {
@@ -794,7 +794,7 @@ async function doSearch() {
     const res  = await fetch('/api/recommend', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ query_text: query, reference_movie: ref || null, top_k: 5 })
+      body: JSON.stringify({ query_text: query, reference_movie: ref || null, user_id: USER_ID, top_k: 5 })
     });
     const data = await res.json();
 
@@ -868,12 +868,14 @@ function renderResults(data) {
         <div class="card-genres">${film.genres || '—'}</div>
         <div class="card-overview">${film.overview || ''}</div>
         <div class="card-meta">
-          <span class="meta-tag cbr" title="Case Similarity Score">
-            <i class="fas fa-layer-group"></i> CBR ${(film.case_score * 100).toFixed(0)}%
+          <span class="meta-tag cbr" title="Final score (case + cf + genre, includes novelty penalty)">
+            <i class="fas fa-layer-group"></i> ${data.retrieve.used_fallback ? 'CBF' : 'CBR'} ${(film.final_score * 100).toFixed(0)}%
           </span>
-          <span class="meta-tag cf" title="CF Score">
-            <i class="fas fa-users"></i> CF ${(film.cf_score * 100).toFixed(0)}%
-          </span>
+          ${film.cf_score > 0
+            ? `<span class="meta-tag cf" title="CF Score">
+                <i class="fas fa-users"></i> CF ${(film.cf_score * 100).toFixed(0)}%
+               </span>`
+            : ''}
           ${film.from_cases && film.from_cases.length > 0
             ? `<span class="meta-tag" title="Diambil dari kasus"><i class="fas fa-link"></i> Case #${film.from_cases[0]}</span>`
             : ''}
@@ -1021,37 +1023,16 @@ document.getElementById('query-input').addEventListener('keydown', e => {
   if (e.key === 'Enter') doSearch();
 });
 
-async function loadAllCases() {
-  const el = document.getElementById('all-cases-list');
-  el.innerHTML = '<p style="color:var(--muted);font-size:.85rem;">Memuat seluruh kasus...</p>';
-  try {
-    const res  = await fetch('/api/cases?limit=10000');
-    const data = await res.json();
-    el.innerHTML = '';
-    if (!data.length) {
-      el.innerHTML = '<p style="color:var(--muted);font-size:.85rem;">Belum ada kasus di database.</p>';
-      return;
-    }
-    data.forEach(c => {
-      const div = document.createElement('div');
-      div.className = 'case-item';
-      const ts = c.timestamp ? c.timestamp.split('T')[0] : '—';
-      const src = c.from_case_id ? `CBR #${c.from_case_id}` : 'Fallback';
-      div.innerHTML = `
-        <div class="case-id">Case #${c.case_id} &nbsp;·&nbsp; ${ts} &nbsp;·&nbsp; ${src}</div>
-        <div class="case-q">"${c.query}"</div>
-        <div class="case-meta">
-          ${c.ref_title ? `Ref: ${c.ref_title} · ` : ''}
-          ✅ ${(c.accepted||[]).length} &nbsp;&nbsp; ❌ ${(c.rejected||[]).length}
-        </div>
-      `;
-      el.appendChild(div);
-    });
-  } catch(e) { 
-      console.warn('loadAllCases error', e); 
-      el.innerHTML = '<p style="color:red;font-size:.85rem;">Gagal memuat data.</p>';
+// ─── User ID (persistent per browser) ─────────────────────────────────────────
+function getUserId() {
+  let uid = localStorage.getItem('cbr_user_id');
+  if (!uid) {
+    uid = String(Math.floor(100000 + Math.random() * 900000));
+    localStorage.setItem('cbr_user_id', uid);
   }
+  return parseInt(uid);
 }
+const USER_ID = getUserId();
 
 // ─── Init ─────────────────────────────────────────────────────────────────────
 loadStats();
