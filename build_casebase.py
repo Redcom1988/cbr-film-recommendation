@@ -239,7 +239,7 @@ def generate_seed_cases(conn, cb_csv=CB_CSV, cf_csv=CF_CSV, n_cases=N_SEED_CASES
             VALUES (?, ?, ?, ?, ?, ?, ?)
         """,
             (
-                uid,
+                None,
                 query,
                 ref_id,
                 json.dumps(recommended),

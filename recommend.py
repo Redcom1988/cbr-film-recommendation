@@ -54,6 +54,11 @@ class CBRRecommender:
     USER_SIM_TOP_N = 30  # jumlah similar user untuk filtering kasus
     USER_SIM_MIN = 0.10  # minimum user similarity threshold
 
+    # Novelty / feedback-loop prevention
+    NOVELTY_PENALTY = (
+        0.85  # kurangi 85% final score untuk film yang sudah pernah di-accept user
+    )
+
     # ── Init ─────────────────────────────────────────────────────────────────
     def __init__(self, **paths):
         p = {**_DEFAULT, **paths}
@@ -87,19 +92,38 @@ class CBRRecommender:
 
     # ── Vectorize ─────────────────────────────────────────────────────────────
     def _vec(self, text: str) -> np.ndarray:
-        """TF-IDF → L2-norm (1×D float32)."""
-        v = self.vectorizer.transform([text]).toarray().astype("float32")
+        """TF-IDF → L2-norm (1D array of shape (D,))."""
+        v = self.vectorizer.transform([text]).toarray().astype("float32").ravel()
         n = np.linalg.norm(v)
         if n > 0:
             v /= n
         return v
 
-    def _case_embedding_text(self, query: str, genres: str, title: str) -> str:
-        """Teks representasi kasus: query + (genres*3) + title."""
+    @staticmethod
+    def _clean_overview(ov: str | None) -> str:
+        o = (ov or "").strip()[:200]
+        ol = o.lower()
+        if not ol or ol in (
+            "overview",
+            "overview found",
+            "overview yet",
+            "movie overview available",
+            "movie overview available please add one themoviedborg",
+            "no overview found.",
+            "no overview yet.",
+        ):
+            return ""
+        return o
+
+    def _case_embedding_text(
+        self, query: str, genres: str, title: str, overview: str = ""
+    ) -> str:
+        """Teks representasi kasus: query + (genres*3) + title + overview."""
         g = str(genres or "").strip()
         t = str(title or "").strip()
         q = str(query or "").strip()
-        return q + " " + (g + " ") * 3 + t
+        o = str(overview or "").strip()
+        return q + " " + (g + " ") * 3 + t + " " + o
 
     # ── DB helpers ────────────────────────────────────────────────────────────
     def _conn(self) -> sqlite3.Connection:
@@ -219,85 +243,21 @@ class CBRRecommender:
         scores.sort(key=lambda x: x[1], reverse=True)
         return [uid for uid, _ in scores[:top_n]]
 
-    # ── User Genre Profiles ───────────────────────────────────────────────────
-    def _load_user_genre_profiles(self) -> tuple[dict, list, dict]:
-        """Build user genre preference vectors from ratings history.
-
-        Returns:
-            user_vecs:  dict[int, np.ndarray] — user_id → genre preference vector [0,1]
-            all_genres: list[str] — sorted list of all genre names
-            movie_genres: dict[int, list[str]] — movieId → list of genres
-        """
-        genres_csv = "output/genres.csv"
-        cf_csv = "output/collaborative_training.csv"
-
-        # Movie → genres mapping
-        gdf = pd.read_csv(genres_csv)
-        movie_genres: dict[int, list[str]] = defaultdict(list)
-        for _, row in gdf.iterrows():
-            movie_genres[int(row["movieId"])].append(str(row["genre"]).strip())
-
-        all_genres = sorted(gdf["genre"].unique())
-        genre_idx = {g: i for i, g in enumerate(all_genres)}
-
-        # User → genre preference vector
-        rdf = pd.read_csv(cf_csv)
-        n_gen = len(all_genres)
-        user_vecs: dict[int, np.ndarray] = {}
-
-        for uid, group in rdf.groupby("userId"):
-            vec = np.zeros(n_gen, dtype=np.float32)
-            count = np.zeros(n_gen, dtype=np.float32)
-            for _, r in group.iterrows():
-                mid = int(r["movieId"])
-                rating = float(r["rating"])
-                for g in movie_genres.get(mid, []):
-                    idx = genre_idx[g]
-                    vec[idx] += rating
-                    count[idx] += 1.0
-
-            mask = count > 0
-            if mask.any():
-                vec[mask] /= count[mask]  # avg rating per genre
-                vec[mask] /= 5.0  # normalize ke [0, 1]
-            user_vecs[int(uid)] = vec
-
-        return user_vecs, all_genres, dict(movie_genres)
-
-    def _user_genre_vec(self, user_id: Optional[int]) -> Optional[np.ndarray]:
-        """Get normalized genre preference vector for a user."""
+    # ── Seen films (feedback-loop prevention) ────────────────────────────────
+    def _get_seen_films(self, user_id: Optional[int]) -> set[int]:
+        """Get all movie IDs the user has ever accepted across all retained cases."""
         if user_id is None:
-            return None
-        return self.user_genre_vecs.get(int(user_id))
-
-    def _user_cosine_sim(self, uid_a: Optional[int], uid_b: Optional[int]) -> float:
-        """Cosine similarity between two users' genre profiles."""
-        if uid_a is None or uid_b is None:
-            return 0.5  # neutral — can't compare
-        va = self._user_genre_vec(uid_a)
-        vb = self._user_genre_vec(uid_b)
-        if va is None or vb is None:
-            return 0.3  # slightly below neutral (unknown user)
-        denom = np.linalg.norm(va) * np.linalg.norm(vb)
-        if denom < 1e-10:
-            return 0.0
-        return float(np.dot(va, vb) / denom)
-
-    def _find_similar_users(self, user_id: int, top_n: int = 30) -> list[int]:
-        """Find top-N users with most similar genre preferences."""
-        target = self._user_genre_vec(user_id)
-        if target is None:
-            return []
-        scores: list[tuple[int, float]] = []
-        for uid, vec in self.user_genre_vecs.items():
-            if uid == user_id:
-                continue
-            denom = np.linalg.norm(vec) * np.linalg.norm(target)
-            sim = float(np.dot(vec, target) / denom) if denom > 1e-10 else 0.0
-            if sim >= self.USER_SIM_MIN:
-                scores.append((uid, sim))
-        scores.sort(key=lambda x: x[1], reverse=True)
-        return [uid for uid, _ in scores[:top_n]]
+            return set()
+        conn = self._conn()
+        rows = conn.execute(
+            "SELECT accepted_ids FROM retained_cases WHERE user_id = ?",
+            (int(user_id),),
+        ).fetchall()
+        conn.close()
+        seen: set[int] = set()
+        for row in rows:
+            seen.update(int(x) for x in json.loads(row["accepted_ids"] or "[]"))
+        return seen
 
     # ── Genre helpers ─────────────────────────────────────────────────────────
     @staticmethod
@@ -380,6 +340,7 @@ class CBRRecommender:
         ref_genres: str,
         ref_title: str,
         user_id: Optional[int] = None,
+        ref_overview: str = "",
     ) -> tuple[list[dict], bool]:
         """
         Cari Top-K kasus paling mirip.
@@ -400,8 +361,10 @@ class CBRRecommender:
             )
 
         # Buat query embedding
-        emb_text = self._case_embedding_text(query_text, ref_genres, ref_title)
-        q_vec = self._vec(emb_text)
+        emb_text = self._case_embedding_text(
+            query_text, ref_genres, ref_title, ref_overview
+        )
+        q_vec = self._vec(emb_text).reshape(1, -1)
 
         # Cari di case_index (ambil lebih banyak untuk filtering user)
         k = min(self.TOP_K_CASES * 3, n_cases)
@@ -447,7 +410,7 @@ class CBRRecommender:
 
             # Query similarity
             case_qv = self._vec(str(row["query_text"] or ""))
-            query_sim = float(np.dot(qv, case_qv.T))
+            query_sim = float(np.dot(qv, case_qv))
 
             # User similarity (0.5 neutral for seed cases)
             user_sim = self._user_cosine_sim(user_id, case_uid)
@@ -521,7 +484,7 @@ class CBRRecommender:
                     continue
                 row = row_map[cid]
                 case_qv = self._vec(str(row["query_text"] or ""))
-                qs = float(np.dot(qv, case_qv.T))
+                qs = float(np.dot(qv, case_qv))
                 ms = (
                     self._movie_similarity(ref_movie_id, int(row["reference_movie"]))
                     if ref_movie_id and row["reference_movie"]
@@ -605,7 +568,10 @@ class CBRRecommender:
         # Genre-level adaptation dari retrieved cases
         genre_net = self._extract_genre_patterns(similar_cases)
 
-        # Re-ranking: case + cf + genre adaptation
+        # Cari film yang sudah pernah di-accept user (novelty penalty)
+        seen_films = self._get_seen_films(user_id)
+
+        # Re-ranking: case + cf + genre adaptation + novelty
         is_cold = user_id is None
         wc, wf, wg = self.W_COLD if is_cold else self.W_REUSE
 
@@ -624,7 +590,11 @@ class CBRRecommender:
                 gs = [genre_net.get(g, 0.0) for g in film_genres]
                 genre_boost = sum(gs) / len(gs)
 
-            fs = wc * case_score + wf * cf + wg * genre_boost
+            novelty = 1.0
+            if mid in seen_films:
+                novelty -= self.NOVELTY_PENALTY
+
+            fs = (wc * case_score + wf * cf + wg * genre_boost) * novelty
 
             film_row = conn.execute(
                 "SELECT movieId, title, genres, overview FROM films WHERE movieId=?",
@@ -637,7 +607,7 @@ class CBRRecommender:
                         "movieId": mid,
                         "title": film_row["title"],
                         "genres": film_row["genres"] or "",
-                        "overview": (film_row["overview"] or "")[:200],
+                        "overview": self._clean_overview(film_row["overview"]),
                         "case_score": round(case_score, 4),
                         "cf_score": round(cf, 4),
                         "genre_adapt_score": round(genre_boost, 4),
@@ -664,12 +634,13 @@ class CBRRecommender:
     ) -> list[dict]:
         """Fallback ke movie_index.faiss langsung jika case base belum cukup."""
         text = (ref_genres + " ") * 3 + query_text
-        q_vec = self._vec(text)
+        q_vec = self._vec(text).reshape(1, -1)
         k = min(top_k + 5, len(self.movie_ids))
         sims, indices = self.movie_index.search(q_vec, k)
 
-        is_cold = user_id is None
-        wc, wf, wg = self.W_COLD if is_cold else self.W_REUSE
+        wc, wf, wg = self.W_COLD
+
+        seen_films = self._get_seen_films(user_id)
 
         conn = self._conn()
         results = []
@@ -677,8 +648,10 @@ class CBRRecommender:
             if idx < 0:
                 continue
             mid = self.movie_ids[idx]
-            cf = 0.0 if is_cold else self._get_cf_score(user_id, mid)
-            fs = wc * float(sim) + wf * cf
+            novelty = 1.0
+            if mid in seen_films:
+                novelty -= self.NOVELTY_PENALTY
+            fs = wc * float(sim) * novelty
 
             film_row = conn.execute(
                 "SELECT movieId, title, genres, overview FROM films WHERE movieId=?",
@@ -690,9 +663,9 @@ class CBRRecommender:
                         "movieId": mid,
                         "title": film_row["title"],
                         "genres": film_row["genres"] or "",
-                        "overview": (film_row["overview"] or "")[:200],
+                        "overview": self._clean_overview(film_row["overview"]),
                         "case_score": round(float(sim), 4),
-                        "cf_score": round(cf, 4),
+                        "cf_score": 0.0,
                         "final_score": round(fs, 4),
                         "from_cases": [],
                     }
@@ -718,6 +691,7 @@ class CBRRecommender:
         ref_movie_id = None
         ref_genres = ""
         ref_title = ""
+        ref_overview = ""
 
         if reference_movie is not None:
             if isinstance(reference_movie, int):
@@ -729,10 +703,11 @@ class CBRRecommender:
                 ref_movie_id = int(row["movieId"])
                 ref_genres = str(row["genres"] or "")
                 ref_title = str(row["title"] or "")
+                ref_overview = str(row["overview"] or "")
 
         # ── RETRIEVE ─────────────────────────────────────
         similar_cases, used_fallback = self._retrieve(
-            query_text, ref_movie_id, ref_genres, ref_title, user_id
+            query_text, ref_movie_id, ref_genres, ref_title, user_id, ref_overview
         )
 
         # ── REUSE / Fallback ──────────────────────────────
@@ -748,26 +723,23 @@ class CBRRecommender:
             recommendations = self._reuse(
                 similar_cases, user_id, top_k, query_text, ref_genres
             )
-            # Pad jika hasil < top_k (misal karena rejected mengurangi kandidat)
-            if len(recommendations) < top_k:
-                existing_ids = {r["movieId"] for r in recommendations}
-                # Juga exclude semua film yang pernah di-reject di retrieved cases
-                rejected_ids = set()
-                for case in similar_cases:
-                    rejected_ids.update(int(m) for m in case.get("rejected_ids", []))
-                padding = self._fallback_cbf(
-                    query_text, ref_genres, user_id, top_k + 10
-                )
-                for r in padding:
-                    if (
-                        r["movieId"] not in existing_ids
-                        and r["movieId"] not in rejected_ids
-                    ):
-                        r["from_cases"] = []
-                        recommendations.append(r)
-                        existing_ids.add(r["movieId"])
-                        if len(recommendations) >= top_k:
-                            break
+            # Always mix in fallback candidates for diversity
+            existing_ids = {r["movieId"] for r in recommendations}
+            rejected_ids = set()
+            for case in similar_cases:
+                rejected_ids.update(int(m) for m in case.get("rejected_ids", []))
+            padding = self._fallback_cbf(query_text, ref_genres, user_id, top_k + 10)
+            for r in padding:
+                if (
+                    r["movieId"] not in existing_ids
+                    and r["movieId"] not in rejected_ids
+                ):
+                    r["from_cases"] = []
+                    recommendations.append(r)
+                    existing_ids.add(r["movieId"])
+            # Re-sort so fresh content can rank above penalized seen movies
+            recommendations.sort(key=lambda x: x["final_score"], reverse=True)
+            recommendations = recommendations[:top_k]
             retrieve_info = {
                 "cases_found": len(similar_cases),
                 "cases_passed_threshold": len(similar_cases),
@@ -844,18 +816,21 @@ class CBRRecommender:
         # Ambil detail film referensi untuk case embedding
         genres = ""
         title = ""
+        overview = ""
         if reference_movie:
             row = conn.execute(
-                "SELECT genres, title FROM films WHERE movieId=?", (reference_movie,)
+                "SELECT genres, title, overview FROM films WHERE movieId=?",
+                (reference_movie,),
             ).fetchone()
             if row:
                 genres = str(row["genres"] or "")
                 title = str(row["title"] or "")
+                overview = str(row["overview"] or "")
         conn.close()
 
         # Tambahkan vektor kasus baru ke case_index live
-        text = self._case_embedding_text(query_text, genres, title)
-        v = self._vec(text)
+        text = self._case_embedding_text(query_text, genres, title, overview)
+        v = self._vec(text).reshape(1, -1)
         self.case_index.add(v)
         self.case_ids.append(new_case_id)
 

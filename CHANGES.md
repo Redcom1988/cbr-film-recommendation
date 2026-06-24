@@ -154,3 +154,56 @@ Each seed case is now attributed to the real user whose ratings generated it (35
 | Precision@5 | 0.48 | 0.26 | Drop due to data sparsity (1.4 cases/user); improves with more cases |
 | Recall@5 | 0.83 | 0.47 | Same sparsity issue |
 | CBR validity | Weak (memory-augmented CBF) | Partial (genuine retrieval + adaptation) | Architecture is correct; needs more user data |
+
+---
+
+## 7. Fix Duplicate Methods
+
+**File:** `recommend.py`
+
+Removed accidentally duplicated `_load_user_genre_profiles()`, `_user_genre_vec()`, `_user_cosine_sim()`, and `_find_similar_users()` methods (lines 223–300 were an exact copy of lines 146–220).
+
+---
+
+## 8. Feedback Loop Prevention (Novelty Penalty)
+
+**File:** `recommend.py`
+
+### Problem
+When a user accepts a film, it gets saved as an `accepted_id` in a new retained case. On subsequent similar queries, that film accumulates positive case_score from the new case and keeps getting re-recommended. If the user keeps accepting it, the score compounds, creating an infinite recommendation loop.
+
+### Solution
+- **New method:** `_get_seen_films(user_id)` — queries all `accepted_ids` across all retained cases for a given user
+- **New hyperparameter:** `NOVELTY_PENALTY = 0.35` — reduces final score by 35% for films the user has already accepted
+- Applied in `_reuse()` after computing the combined score:
+
+```python
+novelty = 1.0
+if mid in seen_films:
+    novelty -= self.NOVELTY_PENALTY
+fs = (wc * case_score + wf * cf + wg * genre_boost) * novelty
+```
+
+The penalty is multiplicative (not hard exclusion) so re-watching is still possible, but repeated acceptance causes a compounding effect — after 2 accepts the score is at 42%, after 3 at 27%, allowing new films to surface.
+
+---
+
+## 9. Overview in Case Embedding
+
+**File:** `recommend.py`, `train_cbf.py`
+
+### `_case_embedding_text()` 
+Before: `query + (genres * 3) + title`
+After: `query + (genres * 3) + title + overview`
+
+In `_retrieve()`, when a reference movie is provided, its overview is now included in the query embedding vector. The same applies to new cases via `retain()`. Seed case embeddings in `build_case_index()` (train_cbf.py) also include overview.
+
+---
+
+## 10. Model Rebuild
+
+Rebuilt all CB index files after changes:
+- `models/tfidf_vectorizer.pkl` — TF-IDF with ngram_range=(1,2), max_features=5000, includes titles
+- `models/movie_index.faiss` — 2,048 films
+- `models/case_index.faiss` — 1,001 seed + retained cases
+- `models/case_ids.pkl`, `models/movie_ids.pkl`
