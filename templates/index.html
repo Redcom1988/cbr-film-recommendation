@@ -256,13 +256,21 @@ input::placeholder { color: #555; }
 .film-card.disliked { border-color: #c0392b !important; box-shadow: 0 0 0 1px #c0392b; opacity: .6; }
 
 .card-poster {
-  height: 140px; background: #0d0d0d;
+  aspect-ratio: 2/3; background: #0d0d0d;
   display: flex; align-items: center; justify-content: center;
   font-size: 3rem; color: #333; position: relative; overflow: hidden;
 }
+.card-poster.loading {
+  animation: pulse 1.5s infinite;
+}
+@keyframes pulse {
+  0% { background-color: #111; }
+  50% { background-color: #222; }
+  100% { background-color: #111; }
+}
 .card-poster .poster-overlay {
   position: absolute; inset: 0;
-  background: linear-gradient(180deg, transparent 40%, var(--card) 100%);
+  background: linear-gradient(180deg, transparent 50%, var(--card) 100%);
 }
 .score-badge {
   position: absolute; top: 10px; right: 10px;
@@ -858,8 +866,8 @@ function renderResults(data) {
     const icon = genreIcon(film.genres);
 
     card.innerHTML = `
-      <div class="card-poster">
-        <span>${icon}</span>
+      <div class="card-poster loading" id="poster-${film.movieId}">
+        <span class="poster-icon">${icon}</span>
         <div class="poster-overlay"></div>
         <div class="score-badge">${(film.final_score * 100).toFixed(0)}%</div>
       </div>
@@ -891,7 +899,39 @@ function renderResults(data) {
       </div>
     `;
     grid.appendChild(card);
+    fetchTMDB(film.movieId);
   });
+}
+
+// ─── TMDB API Fetch ────────────────────────────────────────────────────────
+async function fetchTMDB(movieId) {
+  const apiKey = 'b8a2f0a3727dd2bddc157491cf060b68';
+  try {
+    const res = await fetch(`https://api.themoviedb.org/3/movie/${movieId}?api_key=${apiKey}&language=id-ID`);
+    const data = await res.json();
+    
+    const posterDiv = document.getElementById(`poster-${movieId}`);
+    if (posterDiv) {
+      posterDiv.classList.remove('loading');
+      if (data.poster_path) {
+        posterDiv.style.backgroundImage = `url(https://image.tmdb.org/t/p/w500${data.poster_path})`;
+        posterDiv.style.backgroundSize = 'cover';
+        posterDiv.style.backgroundPosition = 'center';
+        const iconSpan = posterDiv.querySelector('.poster-icon');
+        if (iconSpan) iconSpan.style.display = 'none';
+      }
+    }
+    
+    if (data.release_date) {
+      const dateStr = data.release_date.split('-')[0];
+      const titleDiv = document.querySelector(`#card-${movieId} .card-title`);
+      if (titleDiv && !titleDiv.innerHTML.includes(dateStr)) {
+        titleDiv.innerHTML += ` <span style="color:var(--muted);font-weight:400;font-size:0.8rem">(${dateStr})</span>`;
+      }
+    }
+  } catch (e) {
+    console.warn('TMDB fetch failed for', movieId);
+  }
 }
 
 // ─── Feedback ────────────────────────────────────────────────────────────────

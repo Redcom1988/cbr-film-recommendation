@@ -783,6 +783,7 @@ class CBRRecommender:
         recommended_ids: list[int],
         accepted_ids: list[int],
         rejected_ids: list[int],
+        added_ids: list[int],
         from_case_id: Optional[int] = None,
     ) -> int:
         """
@@ -808,7 +809,7 @@ class CBRRecommender:
                 query_text,
                 reference_movie,
                 json.dumps(recommended_ids),
-                json.dumps(accepted_ids),
+                json.dumps(final_accepted),
                 json.dumps(rejected_ids),
                 from_case_id,
             ),
