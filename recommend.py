@@ -437,7 +437,6 @@ class CBRRecommender:
             "from_case_id":    from_case_id,
         }
 
-    # ── RETAIN ────────────────────────────────────────────────────────────────
     def retain(
         self,
         user_id:         Optional[int],
@@ -446,12 +445,17 @@ class CBRRecommender:
         recommended_ids: list[int],
         accepted_ids:    list[int],
         rejected_ids:    list[int],
+        added_ids:       list[int] = [],
         from_case_id:    Optional[int] = None,
     ) -> int:
         """
         Simpan kasus baru ke retained_cases dan perbarui case_index.faiss.
+        Jika pengguna menambahkan film baru (added_ids), gabungkan ke accepted_ids.
         Return: case_id baru.
         """
+        
+        final_accepted = list(set(accepted_ids + added_ids))
+        
         conn = self._conn()
         cur  = conn.cursor()
 
@@ -465,7 +469,7 @@ class CBRRecommender:
             query_text,
             reference_movie,
             json.dumps(recommended_ids),
-            json.dumps(accepted_ids),
+            json.dumps(final_accepted),
             json.dumps(rejected_ids),
             from_case_id,
         ))

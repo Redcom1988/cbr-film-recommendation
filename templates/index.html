@@ -302,6 +302,23 @@ input::placeholder { color: #555; }
 .btn-dislike.selected { background: var(--red);   color: #fff; }
 
 /* ─── Submit Feedback ────────────────────────────────────────────────── */
+.revise-section {
+  background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+  padding: 20px 24px; margin-bottom: 20px;
+}
+.revise-section h3 { font-size: 1rem; margin-bottom: 12px; color: var(--text); }
+.revise-section p { font-size: 0.85rem; color: var(--muted); margin-bottom: 16px; }
+
+.added-movies-list {
+  display: flex; gap: 10px; flex-wrap: wrap; margin-top: 16px;
+}
+.added-movie-tag {
+  background: rgba(70,211,105,.1); border: 1px solid var(--green); color: var(--green);
+  padding: 6px 12px; border-radius: 20px; font-size: 0.8rem; font-weight: 600;
+  display: flex; align-items: center; gap: 8px;
+}
+.added-movie-tag i { cursor: pointer; color: #e55; }
+
 .feedback-bar {
   background: var(--card); border: 1px solid var(--border); border-radius: 10px;
   padding: 16px 24px;
@@ -319,7 +336,7 @@ input::placeholder { color: #555; }
   white-space: nowrap;
 }
 .btn-retain:hover { background: var(--red-dark); }
-.btn-retain:disabled { background: #555; cursor: not-allowed; }
+.btn-retain:disabled { background: #555; cursor: not-allowed; opacity: 0.5; }
 
 /* ─── Retain Toast ────────────────────────────────────────────────────── */
 .toast {
@@ -544,8 +561,23 @@ input::placeholder { color: #555; }
 
     <div class="results-grid" id="results-grid"></div>
 
+    <div class="revise-section">
+      <h3><i class="fas fa-edit" style="color:var(--gold)"></i> Tahap Revise (Koreksi)</h3>
+      <p>Tidak puas dengan hasil di atas? Cari dan tambahkan film yang sebenarnya Anda inginkan. Ini akan menjadi <strong>pengetahuan baru</strong> bagi sistem.</p>
+      
+      <div class="form-group" style="max-width: 400px;">
+        <div class="input-wrap" style="position:relative;">
+          <i class="fas fa-plus"></i>
+          <input type="text" id="revise-input" placeholder="Cari judul film untuk ditambahkan..." autocomplete="off"/>
+          <div class="autocomplete-list" id="revise-autocomplete-list"></div>
+        </div>
+      </div>
+      
+      <div class="added-movies-list" id="added-movies-list"></div>
+    </div>
+
     <div class="feedback-bar">
-      <p>Pilih <strong><i class="fas fa-thumbs-up" style="color:var(--green)"></i> Like</strong> atau <strong><i class="fas fa-thumbs-down" style="color:#e55"></i> Dislike</strong> pada film di atas, lalu simpan ke case base.</p>
+      <p>Menurut teori CBR, sistem hanya merekam kasus jika ada <strong>ilmu baru</strong> (Anda menambahkan film di tahap Revise, atau memberi <em>Dislike</em>).</p>
       <button class="btn-retain" id="btn-retain" onclick="doRetain()">
         <i class="fas fa-save"></i> Simpan ke Case Base
       </button>
@@ -614,6 +646,7 @@ input::placeholder { color: #555; }
 // ─── State ────────────────────────────────────────────────────────────────────
 let currentSession = null;
 let feedbacks = {}; // movieId → 'like' | 'dislike'
+let addedMovies = {}; // movieId → {id, title}
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 function showLoading(msg = 'Sedang memproses…') {
@@ -674,34 +707,67 @@ function genreIcon(genres) {
 }
 
 // ─── Autocomplete ──────────────────────────────────────────────────────────
-let acTimer = null;
-document.getElementById('ref-input').addEventListener('input', function() {
-  clearTimeout(acTimer);
-  const q = this.value.trim();
-  const list = document.getElementById('autocomplete-list');
-  if (q.length < 2) { list.classList.remove('open'); return; }
-  acTimer = setTimeout(async () => {
-    const res  = await fetch(`/api/movies?q=${encodeURIComponent(q)}`);
-    const data = await res.json();
-    list.innerHTML = '';
-    if (!data.length) { list.classList.remove('open'); return; }
-    data.forEach(m => {
-      const div = document.createElement('div');
-      div.className = 'autocomplete-item';
-      div.innerHTML = `${m.title} <span class="genre-tag">${m.genres || ''}</span>`;
-      div.onclick   = () => {
-        document.getElementById('ref-input').value = m.title;
-        list.classList.remove('open');
-      };
-      list.appendChild(div);
-    });
-    list.classList.add('open');
-  }, 250);
+function setupAutocomplete(inputId, listId, onSelect) {
+  let timer = null;
+  document.getElementById(inputId).addEventListener('input', function() {
+    clearTimeout(timer);
+    const q = this.value.trim();
+    const list = document.getElementById(listId);
+    if (q.length < 2) { list.classList.remove('open'); return; }
+    timer = setTimeout(async () => {
+      const res  = await fetch(`/api/movies?q=${encodeURIComponent(q)}`);
+      const data = await res.json();
+      list.innerHTML = '';
+      if (!data.length) { list.classList.remove('open'); return; }
+      data.forEach(m => {
+        const div = document.createElement('div');
+        div.className = 'autocomplete-item';
+        div.innerHTML = `${m.title} <span class="genre-tag">${m.genres || ''}</span>`;
+        div.onclick = () => {
+          onSelect(m);
+          list.classList.remove('open');
+          document.getElementById(inputId).value = '';
+        };
+        list.appendChild(div);
+      });
+      list.classList.add('open');
+    }, 250);
+  });
+}
+
+setupAutocomplete('ref-input', 'autocomplete-list', (m) => {
+  document.getElementById('ref-input').value = m.title;
 });
 
+setupAutocomplete('revise-input', 'revise-autocomplete-list', (m) => {
+  if (!addedMovies[m.movieId]) {
+    addedMovies[m.movieId] = m;
+    renderAddedMovies();
+  }
+});
+
+function renderAddedMovies() {
+  const container = document.getElementById('added-movies-list');
+  container.innerHTML = '';
+  Object.values(addedMovies).forEach(m => {
+    const tag = document.createElement('div');
+    tag.className = 'added-movie-tag';
+    tag.innerHTML = `<i class="fas fa-check-circle" style="color:var(--green)"></i> ${m.title} 
+                     <i class="fas fa-times" onclick="removeAddedMovie(${m.movieId})"></i>`;
+    container.appendChild(tag);
+  });
+}
+
+function removeAddedMovie(id) {
+  delete addedMovies[id];
+  renderAddedMovies();
+}
+
 document.addEventListener('click', e => {
-  if (!e.target.closest('.input-wrap'))
+  if (!e.target.closest('.input-wrap')) {
     document.getElementById('autocomplete-list').classList.remove('open');
+    document.getElementById('revise-autocomplete-list').classList.remove('open');
+  }
 });
 
 // ─── Search ─────────────────────────────────────────────────────────────────
@@ -714,6 +780,8 @@ async function doSearch() {
   }
 
   feedbacks = {};
+  addedMovies = {};
+  renderAddedMovies();
   currentSession = null;
   resetSteps();
   document.getElementById('results-section').style.display = 'none';
@@ -842,9 +910,10 @@ async function doRetain() {
 
   const accepted = Object.entries(feedbacks).filter(([,v]) => v === 'like').map(([k]) => parseInt(k));
   const rejected = Object.entries(feedbacks).filter(([,v]) => v === 'dislike').map(([k]) => parseInt(k));
+  const added = Object.keys(addedMovies).map(k => parseInt(k));
 
-  if (accepted.length === 0 && rejected.length === 0) {
-    alert('Berikan setidaknya satu feedback (Like atau Dislike) sebelum menyimpan.');
+  if (accepted.length === 0 && rejected.length === 0 && added.length === 0) {
+    alert('Berikan setidaknya satu feedback (Like / Dislike) atau tambahkan film baru sebelum menyimpan.');
     return;
   }
 
@@ -861,6 +930,7 @@ async function doRetain() {
         session_id:   currentSession.session_id,
         accepted_ids: accepted,
         rejected_ids: rejected,
+        added_ids:    added
       })
     });
     const data = await res.json();
@@ -869,17 +939,19 @@ async function doRetain() {
     if (data.error) { alert('Error: ' + data.error); return; }
 
     setStep('step-revise', 'done');
-    document.getElementById('detail-revise').textContent = `${accepted.length} diterima, ${rejected.length} ditolak`;
-    addBadge('detail-revise', `<i class="fas fa-check"></i> ${accepted.length}👍 ${rejected.length}👎`);
+    document.getElementById('detail-revise').textContent = `${added.length} ditambah, ${rejected.length} ditolak`;
+    addBadge('detail-revise', `<i class="fas fa-check"></i> ${added.length}➕ ${rejected.length}👎`);
 
     setStep('step-retain', 'done');
     document.getElementById('detail-retain').textContent = `Kasus #${data.case_id} berhasil disimpan`;
     addBadge('detail-retain', `<i class="fas fa-database"></i> Case #${data.case_id}`);
 
-    showToast(`Kasus #${data.case_id} disimpan. ${data.accepted} film diterima, ${data.rejected} ditolak.`);
+    showToast(`Kasus #${data.case_id} disimpan. ${data.added} ditambah, ${data.rejected} ditolak.`);
 
     currentSession = null;
     feedbacks = {};
+    addedMovies = {};
+    renderAddedMovies();
     loadStats();
     loadRecentCases();
 
