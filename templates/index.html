@@ -569,19 +569,14 @@ input::placeholder { color: #555; }
 
     <div class="results-grid" id="results-grid"></div>
 
-    <div class="revise-section">
-      <h3><i class="fas fa-edit" style="color:var(--gold)"></i> Tahap Revise (Koreksi)</h3>
-      <p>Tidak puas dengan hasil di atas? Cari dan tambahkan film yang sebenarnya Anda inginkan. Ini akan menjadi <strong>pengetahuan baru</strong> bagi sistem.</p>
-      
-      <div class="form-group" style="max-width: 400px;">
-        <div class="input-wrap" style="position:relative;">
-          <i class="fas fa-plus"></i>
-          <input type="text" id="revise-input" placeholder="Cari judul film untuk ditambahkan..." autocomplete="off"/>
-          <div class="autocomplete-list" id="revise-autocomplete-list"></div>
-        </div>
+    <div class="revise-section" id="cbf-section" style="display: none; margin-top: 40px;">
+      <div class="results-header">
+        <h3 style="color:var(--gold)"><i class="fas fa-search"></i> Alternatif (Berdasarkan Query / Tahap Revise)</h3>
       </div>
-      
-      <div class="added-movies-list" id="added-movies-list"></div>
+      <p style="margin-bottom: 16px; color: var(--muted); font-size: 0.9rem;">
+        Tidak puas dengan hasil CBR di atas? Pilih film alternatif dari hasil pencarian di bawah ini untuk ditambahkan sebagai pengetahuan baru bagi sistem.
+      </p>
+      <div class="results-grid" id="cbf-results-grid"></div>
     </div>
 
     <div class="feedback-bar">
@@ -734,7 +729,6 @@ function setupAutocomplete(inputId, listId, onSelect) {
         div.onclick = () => {
           onSelect(m);
           list.classList.remove('open');
-          document.getElementById(inputId).value = '';
         };
         list.appendChild(div);
       });
@@ -747,34 +741,10 @@ setupAutocomplete('ref-input', 'autocomplete-list', (m) => {
   document.getElementById('ref-input').value = m.title;
 });
 
-setupAutocomplete('revise-input', 'revise-autocomplete-list', (m) => {
-  if (!addedMovies[m.movieId]) {
-    addedMovies[m.movieId] = m;
-    renderAddedMovies();
-  }
-});
-
-function renderAddedMovies() {
-  const container = document.getElementById('added-movies-list');
-  container.innerHTML = '';
-  Object.values(addedMovies).forEach(m => {
-    const tag = document.createElement('div');
-    tag.className = 'added-movie-tag';
-    tag.innerHTML = `<i class="fas fa-check-circle" style="color:var(--green)"></i> ${m.title} 
-                     <i class="fas fa-times" onclick="removeAddedMovie(${m.movieId})"></i>`;
-    container.appendChild(tag);
-  });
-}
-
-function removeAddedMovie(id) {
-  delete addedMovies[id];
-  renderAddedMovies();
-}
-
 document.addEventListener('click', e => {
   if (!e.target.closest('.input-wrap')) {
-    document.getElementById('autocomplete-list').classList.remove('open');
-    document.getElementById('revise-autocomplete-list').classList.remove('open');
+    const autoList = document.getElementById('autocomplete-list');
+    if (autoList) autoList.classList.remove('open');
   }
 });
 
@@ -789,7 +759,7 @@ async function doSearch() {
 
   feedbacks = {};
   addedMovies = {};
-  renderAddedMovies();
+  // renderAddedMovies();
   currentSession = null;
   resetSteps();
   document.getElementById('results-section').style.display = 'none';
@@ -901,16 +871,54 @@ function renderResults(data) {
     grid.appendChild(card);
     fetchTMDB(film.movieId);
   });
+
+  const cbfGrid = document.getElementById('cbf-results-grid');
+  const cbfSection = document.getElementById('cbf-section');
+  if (data.cbf_recommendations && data.cbf_recommendations.length > 0) {
+    cbfSection.style.display = 'block';
+    cbfGrid.innerHTML = '';
+    data.cbf_recommendations.forEach(film => {
+      const card = document.createElement('div');
+      card.className = 'film-card';
+      card.id = `cbf-card-${film.movieId}`;
+      const icon = genreIcon(film.genres);
+
+      card.innerHTML = `
+        <div class="card-poster loading" id="cbf-poster-${film.movieId}">
+          <span class="poster-icon">${icon}</span>
+          <div class="poster-overlay"></div>
+          <div class="score-badge">${(film.final_score * 100).toFixed(0)}%</div>
+        </div>
+        <div class="card-body">
+          <div class="card-title">${film.title}</div>
+          <div class="card-genres">${film.genres || '—'}</div>
+          <div class="card-overview">${film.overview || ''}</div>
+          <div class="card-meta">
+            <span class="meta-tag cbf"><i class="fas fa-search"></i> CBF Match</span>
+          </div>
+        </div>
+        <div class="card-actions">
+          <button class="btn-like" style="width:100%" id="alt-${film.movieId}" onclick="toggleAlternative(${film.movieId}, '${film.title.replace(/'/g, "\\'")}')">
+            <i class="fas fa-plus"></i> Pilih sebagai Alternatif
+          </button>
+        </div>
+      `;
+      cbfGrid.appendChild(card);
+      fetchTMDB(film.movieId, 'cbf-');
+    });
+  } else {
+    if (cbfSection) cbfSection.style.display = 'none';
+  }
 }
 
 // ─── TMDB API Fetch ────────────────────────────────────────────────────────
-async function fetchTMDB(movieId) {
+async function fetchTMDB(movieId, prefix = '') {
   const apiKey = 'b8a2f0a3727dd2bddc157491cf060b68';
   try {
     const res = await fetch(`https://api.themoviedb.org/3/movie/${movieId}?api_key=${apiKey}&language=id-ID`);
     const data = await res.json();
     
-    const posterDiv = document.getElementById(`poster-${movieId}`);
+    const posterDiv = document.getElementById(`${prefix}poster-${movieId}`);
     if (posterDiv) {
       posterDiv.classList.remove('loading');
       if (data.poster_path) {
@@ -924,7 +932,7 @@ async function fetchTMDB(movieId) {
     
     if (data.release_date) {
       const dateStr = data.release_date.split('-')[0];
-      const titleDiv = document.querySelector(`#card-${movieId} .card-title`);
+      const titleDiv = document.querySelector(`#${prefix}card-${movieId} .card-title`);
       if (titleDiv && !titleDiv.innerHTML.includes(dateStr)) {
         titleDiv.innerHTML += ` <span style="color:var(--muted);font-weight:400;font-size:0.8rem">(${dateStr})</span>`;
       }
@@ -944,6 +952,19 @@ function setFeedback(movieId, type) {
 
   document.getElementById(`like-${movieId}`).classList.toggle('selected', type === 'like');
   document.getElementById(`dis-${movieId}`).classList.toggle('selected', type === 'dislike');
+}
+
+// ─── Add Alternative ─────────────────────────────────────────────────────────
+function toggleAlternative(movieId, title) {
+  if (addedMovies[movieId]) {
+    delete addedMovies[movieId];
+    document.getElementById(`alt-${movieId}`).classList.remove('selected');
+    document.getElementById(`alt-${movieId}`).innerHTML = '<i class="fas fa-plus"></i> Pilih sebagai Alternatif';
+  } else {
+    addedMovies[movieId] = title;
+    document.getElementById(`alt-${movieId}`).classList.add('selected');
+    document.getElementById(`alt-${movieId}`).innerHTML = '<i class="fas fa-check"></i> Terpilih';
+  }
 }
 
 // ─── Retain ──────────────────────────────────────────────────────────────────
@@ -993,7 +1014,7 @@ async function doRetain() {
     currentSession = null;
     feedbacks = {};
     addedMovies = {};
-    renderAddedMovies();
+    // renderAddedMovies();
     loadStats();
     loadRecentCases();
 

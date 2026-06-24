@@ -591,8 +591,9 @@ class CBRRecommender:
                 genre_boost = sum(gs) / len(gs)
 
             novelty = 1.0
-            if mid in seen_films:
-                novelty -= self.NOVELTY_PENALTY
+            # Solusi CBR (yang pernah di-Revise/di-Retain) dibebaskan dari penalti
+            # kebaruan agar selalu naik ke posisi teratas saat kasusnya relevan.
+            # (Jika mid in seen_films, kita tetap biarkan novelty = 1.0)
 
             fs = (wc * case_score + wf * cf + wg * genre_boost) * novelty
 
@@ -674,6 +675,41 @@ class CBRRecommender:
 
         results.sort(key=lambda x: x["final_score"], reverse=True)
         return results[:top_k]
+
+    # ── PURE QUERY SEARCH ─────────────────────────────────────────────────────
+    def _pure_query_search(self, query_text: str, top_k: int) -> list[dict]:
+        """Pencarian literal berbasis teks (SQL LIKE) pada judul dan overview."""
+        conn = self._conn()
+        q = f"%{query_text.lower()}%"
+        # Prioritaskan match di title, kemudian di overview
+        rows = conn.execute("""
+            SELECT movieId, title, genres, overview,
+                   CASE WHEN LOWER(title) LIKE ? THEN 1 ELSE 0 END as title_match
+            FROM films 
+            WHERE LOWER(title) LIKE ? OR LOWER(overview) LIKE ?
+            ORDER BY title_match DESC
+            LIMIT ?
+        """, (q, q, q, top_k)).fetchall()
+        
+        results = []
+        for row in rows:
+            results.append({
+                "movieId": row["movieId"],
+                "title": row["title"],
+                "genres": row["genres"] or "",
+                "overview": self._clean_overview(row["overview"]),
+                "case_score": 1.0,
+                "cf_score": 0.0,
+                "final_score": 1.0,
+                "from_cases": [],
+            })
+        conn.close()
+        
+        # Jika hasil pencarian literal kosong (mungkin query aneh), panggil faiss
+        if not results:
+            return self._fallback_cbf(query_text, "", None, top_k)
+            
+        return results
 
     # ── RECOMMEND (Retrieve + Reuse) ──────────────────────────────────────────
     def recommend(
@@ -760,6 +796,9 @@ class CBRRecommender:
             else None
         )
 
+        # ── PURE QUERY RECOMMENDATIONS (For Alternative UI) ────────
+        cbf_recommendations = self._pure_query_search(query_text, top_k)
+
         return {
             "session_id": str(uuid.uuid4()),
             "query_text": query_text,
@@ -772,6 +811,7 @@ class CBRRecommender:
                 "used_cf": (user_id is not None),
             },
             "recommendations": recommendations,
+            "cbf_recommendations": cbf_recommendations,
             "from_case_id": from_case_id,
         }
 
