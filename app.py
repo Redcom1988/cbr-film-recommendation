@@ -150,7 +150,9 @@ def api_stats():
     n_user = conn.execute(
         "SELECT COUNT(*) FROM retained_cases WHERE is_seed = 0 AND user_id IS NOT NULL"
     ).fetchone()[0]
-    n_films = conn.execute("SELECT COUNT(*) FROM films").fetchone()[0]
+    n_films = conn.execute(
+        "SELECT COUNT(DISTINCT movieId) FROM predicted_ratings"
+    ).fetchone()[0]
 
     top_acc = conn.execute("""
         SELECT f.title, COUNT(*) AS hits
