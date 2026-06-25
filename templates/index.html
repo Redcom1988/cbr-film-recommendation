@@ -287,13 +287,21 @@ input::placeholder { color: #555; }
 .film-card.disliked { border-color: #c0392b !important; box-shadow: 0 0 0 1px #c0392b; opacity: .6; }
 
 .card-poster {
-  height: 140px; background: #0d0d0d;
+  aspect-ratio: 2/3; background: #0d0d0d;
   display: flex; align-items: center; justify-content: center;
   font-size: 3rem; color: #333; position: relative; overflow: hidden;
 }
+.card-poster.loading {
+  animation: pulse 1.5s infinite;
+}
+@keyframes pulse {
+  0% { background-color: #111; }
+  50% { background-color: #222; }
+  100% { background-color: #111; }
+}
 .card-poster .poster-overlay {
   position: absolute; inset: 0;
-  background: linear-gradient(180deg, transparent 40%, var(--card) 100%);
+  background: linear-gradient(180deg, transparent 50%, var(--card) 100%);
 }
 .score-badge {
   position: absolute; top: 10px; right: 10px;
@@ -333,6 +341,23 @@ input::placeholder { color: #555; }
 .btn-dislike.selected { background: var(--red);   color: #fff; }
 
 /* ─── Submit Feedback ────────────────────────────────────────────────── */
+.revise-section {
+  background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+  padding: 20px 24px; margin-bottom: 20px;
+}
+.revise-section h3 { font-size: 1rem; margin-bottom: 12px; color: var(--text); }
+.revise-section p { font-size: 0.85rem; color: var(--muted); margin-bottom: 16px; }
+
+.added-movies-list {
+  display: flex; gap: 10px; flex-wrap: wrap; margin-top: 16px;
+}
+.added-movie-tag {
+  background: rgba(70,211,105,.1); border: 1px solid var(--green); color: var(--green);
+  padding: 6px 12px; border-radius: 20px; font-size: 0.8rem; font-weight: 600;
+  display: flex; align-items: center; gap: 8px;
+}
+.added-movie-tag i { cursor: pointer; color: #e55; }
+
 .feedback-bar {
   background: var(--card); border: 1px solid var(--border); border-radius: 10px;
   padding: 16px 24px;
@@ -350,7 +375,7 @@ input::placeholder { color: #555; }
   white-space: nowrap;
 }
 .btn-retain:hover { background: var(--red-dark); }
-.btn-retain:disabled { background: #555; cursor: not-allowed; }
+.btn-retain:disabled { background: #555; cursor: not-allowed; opacity: 0.5; }
 
 /* ─── Retain Toast ────────────────────────────────────────────────────── */
 .toast {
@@ -580,8 +605,18 @@ input::placeholder { color: #555; }
 
     <div class="results-grid" id="results-grid"></div>
 
+    <div class="revise-section" id="cbf-section" style="display: none; margin-top: 40px;">
+      <div class="results-header">
+        <h3 style="color:var(--gold)"><i class="fas fa-search"></i> Alternatif (Berdasarkan Query / Tahap Revise)</h3>
+      </div>
+      <p style="margin-bottom: 16px; color: var(--muted); font-size: 0.9rem;">
+        Tidak puas dengan hasil CBR di atas? Pilih film alternatif dari hasil pencarian di bawah ini untuk ditambahkan sebagai pengetahuan baru bagi sistem.
+      </p>
+      <div class="results-grid" id="cbf-results-grid"></div>
+    </div>
+
     <div class="feedback-bar">
-      <p>Pilih <strong><i class="fas fa-thumbs-up" style="color:var(--green)"></i> Like</strong> atau <strong><i class="fas fa-thumbs-down" style="color:#e55"></i> Dislike</strong> pada film di atas, lalu simpan ke case base.</p>
+      <p>Menurut teori CBR, sistem hanya merekam kasus jika ada <strong>ilmu baru</strong> (Anda menambahkan film di tahap Revise, atau memberi <em>Dislike</em>).</p>
       <button class="btn-retain" id="btn-retain" onclick="doRetain()">
         <i class="fas fa-save"></i> Simpan ke Case Base
       </button>
@@ -626,12 +661,31 @@ input::placeholder { color: #555; }
 
   </div>
 
+  <!-- All Cases Panel -->
+  <section class="all-cases-section" style="margin-top: 32px;">
+    <div class="panel">
+      <div class="panel-head">
+        <i class="fas fa-list"></i>
+        <h3>Semua Kasus dalam Case Base</h3>
+        <button class="btn-search" style="padding: 6px 16px; font-size: 0.85rem; margin-left: auto;" onclick="loadAllCases()">
+          <i class="fas fa-download"></i> Tampilkan Semua
+        </button>
+      </div>
+      <div class="panel-body">
+        <div id="all-cases-list" style="max-height: 400px; overflow-y: auto; padding-right: 10px;">
+          <p style="color:var(--muted);font-size:.85rem;">Klik tombol "Tampilkan Semua" untuk memuat daftar seluruh kasus.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
 </main>
 
 <script>
 // ─── State ────────────────────────────────────────────────────────────────────
 let currentSession = null;
 let feedbacks = {}; // movieId → 'like' | 'dislike'
+let addedMovies = {}; // movieId → {id, title}
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 function showLoading(msg = 'Sedang memproses…') {
@@ -692,34 +746,42 @@ function genreIcon(genres) {
 }
 
 // ─── Autocomplete ──────────────────────────────────────────────────────────
-let acTimer = null;
-document.getElementById('ref-input').addEventListener('input', function() {
-  clearTimeout(acTimer);
-  const q = this.value.trim();
-  const list = document.getElementById('autocomplete-list');
-  if (q.length < 2) { list.classList.remove('open'); return; }
-  acTimer = setTimeout(async () => {
-    const res  = await fetch(`/api/movies?q=${encodeURIComponent(q)}`);
-    const data = await res.json();
-    list.innerHTML = '';
-    if (!data.length) { list.classList.remove('open'); return; }
-    data.forEach(m => {
-      const div = document.createElement('div');
-      div.className = 'autocomplete-item';
-      div.innerHTML = `${m.title} <span class="genre-tag">${m.genres || ''}</span>`;
-      div.onclick   = () => {
-        document.getElementById('ref-input').value = m.title;
-        list.classList.remove('open');
-      };
-      list.appendChild(div);
-    });
-    list.classList.add('open');
-  }, 250);
+function setupAutocomplete(inputId, listId, onSelect) {
+  let timer = null;
+  document.getElementById(inputId).addEventListener('input', function() {
+    clearTimeout(timer);
+    const q = this.value.trim();
+    const list = document.getElementById(listId);
+    if (q.length < 2) { list.classList.remove('open'); return; }
+    timer = setTimeout(async () => {
+      const res  = await fetch(`/api/movies?q=${encodeURIComponent(q)}`);
+      const data = await res.json();
+      list.innerHTML = '';
+      if (!data.length) { list.classList.remove('open'); return; }
+      data.forEach(m => {
+        const div = document.createElement('div');
+        div.className = 'autocomplete-item';
+        div.innerHTML = `${m.title} <span class="genre-tag">${m.genres || ''}</span>`;
+        div.onclick = () => {
+          onSelect(m);
+          list.classList.remove('open');
+        };
+        list.appendChild(div);
+      });
+      list.classList.add('open');
+    }, 250);
+  });
+}
+
+setupAutocomplete('ref-input', 'autocomplete-list', (m) => {
+  document.getElementById('ref-input').value = m.title;
 });
 
 document.addEventListener('click', e => {
-  if (!e.target.closest('.input-wrap'))
-    document.getElementById('autocomplete-list').classList.remove('open');
+  if (!e.target.closest('.input-wrap')) {
+    const autoList = document.getElementById('autocomplete-list');
+    if (autoList) autoList.classList.remove('open');
+  }
 });
 
 // ─── Search ─────────────────────────────────────────────────────────────────
@@ -732,6 +794,8 @@ async function doSearch() {
   }
 
   feedbacks = {};
+  addedMovies = {};
+  // renderAddedMovies();
   currentSession = null;
   resetSteps();
   document.getElementById('results-section').style.display = 'none';
@@ -808,8 +872,8 @@ function renderResults(data) {
     const icon = genreIcon(film.genres);
 
     card.innerHTML = `
-      <div class="card-poster">
-        <span>${icon}</span>
+      <div class="card-poster loading" id="poster-${film.movieId}">
+        <span class="poster-icon">${icon}</span>
         <div class="poster-overlay"></div>
         <div class="score-badge">${(film.final_score * 100).toFixed(0)}%</div>
       </div>
@@ -841,7 +905,77 @@ function renderResults(data) {
       </div>
     `;
     grid.appendChild(card);
+    fetchTMDB(film.movieId);
   });
+
+  const cbfGrid = document.getElementById('cbf-results-grid');
+  const cbfSection = document.getElementById('cbf-section');
+  if (data.cbf_recommendations && data.cbf_recommendations.length > 0) {
+    cbfSection.style.display = 'block';
+    cbfGrid.innerHTML = '';
+    data.cbf_recommendations.forEach(film => {
+      const card = document.createElement('div');
+      card.className = 'film-card';
+      card.id = `cbf-card-${film.movieId}`;
+      const icon = genreIcon(film.genres);
+
+      card.innerHTML = `
+        <div class="card-poster loading" id="cbf-poster-${film.movieId}">
+          <span class="poster-icon">${icon}</span>
+          <div class="poster-overlay"></div>
+          <div class="score-badge">${(film.final_score * 100).toFixed(0)}%</div>
+        </div>
+        <div class="card-body">
+          <div class="card-title">${film.title}</div>
+          <div class="card-genres">${film.genres || '—'}</div>
+          <div class="card-overview">${film.overview || ''}</div>
+          <div class="card-meta">
+            <span class="meta-tag cbf"><i class="fas fa-search"></i> CBF Match</span>
+          </div>
+        </div>
+        <div class="card-actions">
+          <button class="btn-like" style="width:100%" id="alt-${film.movieId}" onclick="toggleAlternative(${film.movieId}, '${film.title.replace(/'/g, "\\'")}')">
+            <i class="fas fa-plus"></i> Pilih sebagai Alternatif
+          </button>
+        </div>
+      `;
+      cbfGrid.appendChild(card);
+      fetchTMDB(film.movieId, 'cbf-');
+    });
+  } else {
+    if (cbfSection) cbfSection.style.display = 'none';
+  }
+}
+
+// ─── TMDB API Fetch ────────────────────────────────────────────────────────
+async function fetchTMDB(movieId, prefix = '') {
+  const apiKey = 'b8a2f0a3727dd2bddc157491cf060b68';
+  try {
+    const res = await fetch(`https://api.themoviedb.org/3/movie/${movieId}?api_key=${apiKey}&language=id-ID`);
+    const data = await res.json();
+    
+    const posterDiv = document.getElementById(`${prefix}poster-${movieId}`);
+    if (posterDiv) {
+      posterDiv.classList.remove('loading');
+      if (data.poster_path) {
+        posterDiv.style.backgroundImage = `url(https://image.tmdb.org/t/p/w500${data.poster_path})`;
+        posterDiv.style.backgroundSize = 'cover';
+        posterDiv.style.backgroundPosition = 'center';
+        const iconSpan = posterDiv.querySelector('.poster-icon');
+        if (iconSpan) iconSpan.style.display = 'none';
+      }
+    }
+    
+    if (data.release_date) {
+      const dateStr = data.release_date.split('-')[0];
+      const titleDiv = document.querySelector(`#${prefix}card-${movieId} .card-title`);
+      if (titleDiv && !titleDiv.innerHTML.includes(dateStr)) {
+        titleDiv.innerHTML += ` <span style="color:var(--muted);font-weight:400;font-size:0.8rem">(${dateStr})</span>`;
+      }
+    }
+  } catch (e) {
+    console.warn('TMDB fetch failed for', movieId);
+  }
 }
 
 // ─── Feedback ────────────────────────────────────────────────────────────────
@@ -856,15 +990,29 @@ function setFeedback(movieId, type) {
   document.getElementById(`dis-${movieId}`).classList.toggle('selected', type === 'dislike');
 }
 
+// ─── Add Alternative ─────────────────────────────────────────────────────────
+function toggleAlternative(movieId, title) {
+  if (addedMovies[movieId]) {
+    delete addedMovies[movieId];
+    document.getElementById(`alt-${movieId}`).classList.remove('selected');
+    document.getElementById(`alt-${movieId}`).innerHTML = '<i class="fas fa-plus"></i> Pilih sebagai Alternatif';
+  } else {
+    addedMovies[movieId] = title;
+    document.getElementById(`alt-${movieId}`).classList.add('selected');
+    document.getElementById(`alt-${movieId}`).innerHTML = '<i class="fas fa-check"></i> Terpilih';
+  }
+}
+
 // ─── Retain ──────────────────────────────────────────────────────────────────
 async function doRetain() {
   if (!currentSession) return;
 
   const accepted = Object.entries(feedbacks).filter(([,v]) => v === 'like').map(([k]) => parseInt(k));
   const rejected = Object.entries(feedbacks).filter(([,v]) => v === 'dislike').map(([k]) => parseInt(k));
+  const added = Object.keys(addedMovies).map(k => parseInt(k));
 
-  if (accepted.length === 0 && rejected.length === 0) {
-    alert('Berikan setidaknya satu feedback (Like atau Dislike) sebelum menyimpan.');
+  if (accepted.length === 0 && rejected.length === 0 && added.length === 0) {
+    alert('Berikan setidaknya satu feedback (Like / Dislike) atau tambahkan film baru sebelum menyimpan.');
     return;
   }
 
@@ -881,6 +1029,7 @@ async function doRetain() {
         session_id:   currentSession.session_id,
         accepted_ids: accepted,
         rejected_ids: rejected,
+        added_ids:    added
       })
     });
     const data = await res.json();
@@ -889,17 +1038,19 @@ async function doRetain() {
     if (data.error) { alert('Error: ' + data.error); return; }
 
     setStep('step-revise', 'done');
-    document.getElementById('detail-revise').textContent = `${accepted.length} diterima, ${rejected.length} ditolak`;
-    addBadge('detail-revise', `<i class="fas fa-check"></i> ${accepted.length}👍 ${rejected.length}👎`);
+    document.getElementById('detail-revise').textContent = `${added.length} ditambah, ${rejected.length} ditolak`;
+    addBadge('detail-revise', `<i class="fas fa-check"></i> ${added.length}➕ ${rejected.length}👎`);
 
     setStep('step-retain', 'done');
     document.getElementById('detail-retain').textContent = `Kasus #${data.case_id} berhasil disimpan`;
     addBadge('detail-retain', `<i class="fas fa-database"></i> Case #${data.case_id}`);
 
-    showToast(`Kasus #${data.case_id} disimpan. ${data.accepted} film diterima, ${data.rejected} ditolak.`);
+    showToast(`Kasus #${data.case_id} disimpan. ${data.added} ditambah, ${data.rejected} ditolak.`);
 
     currentSession = null;
     feedbacks = {};
+    addedMovies = {};
+    // renderAddedMovies();
     loadStats();
     loadRecentCases();
 

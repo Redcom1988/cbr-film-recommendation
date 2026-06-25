@@ -90,12 +90,16 @@ def api_feedback():
     sid = data.get("session_id")
     accepted_ids = [int(x) for x in data.get("accepted_ids", [])]
     rejected_ids = [int(x) for x in data.get("rejected_ids", [])]
+    added_ids    = [int(x) for x in data.get("added_ids", [])]
 
     if not sid or sid not in pending_sessions:
         return jsonify({"error": "Session tidak valid atau sudah expired."}), 400
 
     s = pending_sessions.pop(sid)
 
+    # Secara teoritis (CBR murni), hanya simpan ke case base bila ada "new knowledge" 
+    # yaitu ketika ada ditambahkan secara manual (added_ids > 0).
+    # Namun untuk keperluan statistik kita tetap rekam, tetapi kita merge added_ids ke accepted_ids.
     new_case_id = recommender.retain(
         user_id=s["user_id"],
         query_text=s["query_text"],
