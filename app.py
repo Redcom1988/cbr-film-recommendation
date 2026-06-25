@@ -107,6 +107,7 @@ def api_feedback():
         recommended_ids=s["recommended_ids"],
         accepted_ids=accepted_ids,
         rejected_ids=rejected_ids,
+        added_ids=added_ids,
         from_case_id=s["from_case_id"],
     )
 

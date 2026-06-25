@@ -188,20 +188,22 @@ def generate_seed_cases(conn, cb_csv=CB_CSV, cf_csv=CF_CSV):
     # Lookup: movieId → primary genre
     movie_primary_genre: dict[int, str] = {}
     for _, row in cb_df.iterrows():
-        movie_genres[int(row["movieId"])] = str(row.get("genres_clean", ""))
+        genres = str(row.get('genres_clean', '')).split()
+        if genres:
+            movie_primary_genre[int(row['movieId'])] = genres[0]
 
     # Kumpulkan film yang disukai per user (rating >= 4.0)
-    high = cf_df[cf_df["rating"] >= 4.0].copy()
-    user_liked: dict[int, list[int]] = defaultdict(list)
+    high = cf_df[cf_df['rating'] >= 4.0].copy()
+    
+    # user_genre_groups: user_id -> primary_genre -> list of movie_ids
+    user_genre_groups = defaultdict(lambda: defaultdict(list))
+    
     for _, row in high.iterrows():
-        mid = int(row["movieId"])
-        if mid in movie_genres and movie_genres[mid].strip():
-            user_liked[int(row["userId"])].append(mid)
-
-    eligible = [(uid, films) for uid, films in user_liked.items() if len(films) >= 3]
-    if not eligible:
-        print("[WARN] Tidak ada user dengan ≥ 3 film favorit. Seed cases tidak dibuat.")
-        return 0
+        uid = int(row['userId'])
+        mid = int(row['movieId'])
+        p_genre = movie_primary_genre.get(mid)
+        if p_genre:
+            user_genre_groups[uid][p_genre].append(mid)
 
     cur = conn.cursor()
     # Bersihkan seed cases lama (baik yg is_seed=1 maupun yg user_id IS NULL)
@@ -211,8 +213,7 @@ def generate_seed_cases(conn, cb_csv=CB_CSV, cf_csv=CF_CSV):
     conn.commit()
 
     generated = 0
-    attempts = 0
-    max_try = n_cases * 20
+    batch_data = []
 
     for uid, genre_dict in user_genre_groups.items():
         for p_genre, movies in genre_dict.items():
@@ -239,45 +240,21 @@ def generate_seed_cases(conn, cb_csv=CB_CSV, cf_csv=CF_CSV):
                     cur.executemany("""
                         INSERT INTO retained_cases
                             (user_id, query_text, reference_movie,
-                             recommended_ids, accepted_ids, rejected_ids, from_case_id)
-                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                             recommended_ids, accepted_ids, rejected_ids, from_case_id, is_seed)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, 1)
                     """, batch_data)
                     conn.commit()
                     batch_data = []
 
-        # Pilih film referensi
-        ref_id = random.choice(liked)
-        ref_genre = movie_genres.get(ref_id, "")
-        if not ref_genre.strip():
-            continue
-
-        # Query sintetis dari genre
-        query = _build_query_from_genres(ref_genre)
-
-        # Film lain yang disukai → accepted
-        others = [m for m in liked if m != ref_id]
-        n_accept = min(random.randint(2, 4), len(others))
-        accepted = random.sample(others, n_accept)
-        recommended = list(accepted)  # seed: recommended = accepted, tanpa rejected
-
-        cur.execute(
-            """
+    # Sisa batch
+    if batch_data:
+        cur.executemany("""
             INSERT INTO retained_cases
                 (user_id, query_text, reference_movie,
                  recommended_ids, accepted_ids, rejected_ids, from_case_id, is_seed)
             VALUES (?, ?, ?, ?, ?, ?, ?, 1)
-        """,
-            (
-                uid,
-                query,
-                ref_id,
-                json.dumps(recommended),
-                json.dumps(accepted),
-                json.dumps([]),
-                None,
-            ),
-        )
-        generated += 1
+        """, batch_data)
+        conn.commit()
 
     print(f"[OK] Seed cases dibuat secara masif: {generated} kasus.")
     return generated
