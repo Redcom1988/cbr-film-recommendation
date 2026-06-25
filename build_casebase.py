@@ -16,7 +16,7 @@ DB_PATH = "models/cases.db"
 MOVIES_CLEAN = "output/movies_clean.csv"
 CB_CSV = "output/content_based_training.csv"
 CF_CSV = "output/collaborative_training.csv"
-N_SEED_CASES = 500
+N_SEED_CASES = 3278
 
 
 # ─── DB helpers ──────────────────────────────────────────────────────────────
