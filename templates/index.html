@@ -76,6 +76,37 @@ header {
 }
 .stat-pill span { color: var(--text); font-weight: 600; }
 
+.user-id-box {
+  position: relative;
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: 20px; padding: 4px 10px 4px 18px;
+  display: flex; align-items: center; gap: 0;
+  font-size: 0.78rem; color: var(--muted);
+  height: 30px;
+}
+.user-id-box i {
+  position: absolute; left: 6px; top: 50%; transform: translateY(-50%);
+  font-size: 0.6rem; pointer-events: none;
+}
+.user-id-box input {
+  background: transparent; border: none;
+  font-size: 0.72rem; color: var(--text); font-family: 'Inter', sans-serif;
+  font-weight: 600; outline: none; padding: 0; margin: 0;
+  line-height: 1; height: 16px;
+  -moz-appearance: textfield;
+}
+.user-id-box input::-webkit-inner-spin-button,
+.user-id-box input::-webkit-outer-spin-button {
+  -webkit-appearance: none; margin: 0;
+}
+.user-id-box input:focus { color: var(--red); }
+.user-id-badge {
+  font-size: 0.65rem; font-weight: 700; padding: 1px 6px;
+  border-radius: 8px; letter-spacing: 0.3px; white-space: nowrap;
+}
+.user-id-badge.seed { background: var(--red); color: #fff; }
+.user-id-badge.new  { background: #333; color: var(--muted); }
+
 /* ─── Main layout ───────────────────────────────────────────────────────── */
 main {
   max-width: 1280px; margin: 0 auto;
@@ -430,6 +461,11 @@ input::placeholder { color: #555; }
     CineCBR
   </a>
   <div class="header-right">
+    <div class="user-id-box" title="User ID 1-671 = seed user dengan data rating nyata. ID lain = user baru.">
+      <i class="fas fa-user"></i>
+      <input type="text" inputmode="numeric" id="user-id-input" placeholder="ID" size="3"/>
+      <span class="user-id-badge" id="user-id-badge"></span>
+    </div>
     <div class="stat-pill" id="hdr-cases">
       <i class="fas fa-database"></i>
       <span id="hdr-cases-val">—</span> kasus
@@ -933,18 +969,49 @@ document.getElementById('query-input').addEventListener('keydown', e => {
   if (e.key === 'Enter') doSearch();
 });
 
-// ─── User ID (persistent per browser) ─────────────────────────────────────────
-function getUserId() {
+// ─── User ID ──────────────────────────────────────────────────────────────────
+let USER_ID = 0;
+
+const SEED_USER_MAX = 671; // MovieLens users with seed data
+
+function updateUserBadge(uid) {
+  const badge = document.getElementById('user-id-badge');
+  if (uid >= 1 && uid <= SEED_USER_MAX) {
+    badge.textContent = 'Seed';
+    badge.className = 'user-id-badge seed';
+  } else {
+    badge.textContent = 'Baru';
+    badge.className = 'user-id-badge new';
+  }
+}
+
+function initUserId() {
+  const input = document.getElementById('user-id-input');
   let uid = localStorage.getItem('cbr_user_id');
   if (!uid) {
     uid = String(Math.floor(100000 + Math.random() * 900000));
     localStorage.setItem('cbr_user_id', uid);
   }
-  return parseInt(uid);
+  input.value = uid;
+  USER_ID = parseInt(uid);
+  updateUserBadge(USER_ID);
+
+  input.addEventListener('change', function () {
+    const val = this.value.trim();
+    if (val) {
+      USER_ID = parseInt(val);
+      localStorage.setItem('cbr_user_id', val);
+      updateUserBadge(USER_ID);
+    } else {
+      this.value = USER_ID;
+    }
+    loadStats();
+    loadRecentCases();
+  });
 }
-const USER_ID = getUserId();
 
 // ─── Init ─────────────────────────────────────────────────────────────────────
+initUserId();
 loadStats();
 loadRecentCases();
 </script>

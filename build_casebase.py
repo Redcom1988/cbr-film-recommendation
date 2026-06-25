@@ -104,6 +104,13 @@ def initialize_database(conn):
     conn.commit()
     print("[OK] Skema database siap.")
 
+    # ── Migrasi: tambah kolom is_seed jika belum ada
+    try:
+        cur.execute("ALTER TABLE retained_cases ADD COLUMN is_seed INTEGER DEFAULT 0")
+        print("[OK] Kolom is_seed ditambahkan ke retained_cases.")
+    except sqlite3.OperationalError:
+        pass  # sudah ada
+
 
 # ─── Phase 1a: Populate films ─────────────────────────────────────────────────
 
@@ -199,9 +206,9 @@ def generate_seed_cases(conn, cb_csv=CB_CSV, cf_csv=CF_CSV, n_cases=N_SEED_CASES
         return 0
 
     cur = conn.cursor()
-    # Bersihkan seed cases lama
+    # Bersihkan seed cases lama (baik yg is_seed=1 maupun yg user_id IS NULL)
     cur.execute(
-        "DELETE FROM retained_cases WHERE user_id IS NULL AND from_case_id IS NULL"
+        "DELETE FROM retained_cases WHERE is_seed = 1 OR (user_id IS NULL AND from_case_id IS NULL)"
     )
     conn.commit()
 
@@ -235,11 +242,11 @@ def generate_seed_cases(conn, cb_csv=CB_CSV, cf_csv=CF_CSV, n_cases=N_SEED_CASES
             """
             INSERT INTO retained_cases
                 (user_id, query_text, reference_movie,
-                 recommended_ids, accepted_ids, rejected_ids, from_case_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+                 recommended_ids, accepted_ids, rejected_ids, from_case_id, is_seed)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 1)
         """,
             (
-                None,
+                uid,
                 query,
                 ref_id,
                 json.dumps(recommended),

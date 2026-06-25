@@ -38,12 +38,13 @@ def _normalize(matrix: np.ndarray) -> np.ndarray:
 
 def _build_text(genres: str, overview: str, title: str = "") -> str:
     """
-    Gabung genre (3×) + overview + title untuk TF-IDF.
+    Gabung genre (3×) + title + overview untuk TF-IDF.
+    Urutan konsisten dengan case embedding di recommend.py.
     """
     g = str(genres).strip() if pd.notna(genres) else ""
-    o = str(overview).strip() if pd.notna(overview) else ""
     t = str(title).strip() if pd.notna(title) else ""
-    return (g + " ") * 3 + o + " " + t
+    o = str(overview).strip() if pd.notna(overview) else ""
+    return (g + " ") * 3 + t + " " + o
 
 
 # ─── Phase 2a: Movie Index ────────────────────────────────────────────────────
