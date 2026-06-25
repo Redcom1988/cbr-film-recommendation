@@ -51,7 +51,7 @@ def evaluate(k: int = 5, test_split: float = 0.2):
     rows = conn.execute("""
         SELECT case_id, query_text, reference_movie, accepted_ids, user_id
         FROM   retained_cases
-        WHERE  from_case_id IS NULL
+        WHERE  is_seed = 1
         ORDER  BY case_id
     """).fetchall()
     conn.close()

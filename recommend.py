@@ -65,17 +65,62 @@ class CBRRecommender:
 
         self.db_path = p["db"]
 
-        with open(p["vectorizer"], "rb") as f:
-            self.vectorizer = pickle.load(f)
-        with open(p["movie_ids"], "rb") as f:
-            self.movie_ids: list[int] = pickle.load(f)
-        with open(p["case_ids"], "rb") as f:
-            self.case_ids: list[int] = pickle.load(f)
-        with open(p["cf_model"], "rb") as f:
-            self.cf_model = pickle.load(f)
+        try:
+            with open(p["vectorizer"], "rb") as f:
+                self.vectorizer = pickle.load(f)
+        except (FileNotFoundError, pickle.UnpicklingError, EOFError) as e:
+            raise FileNotFoundError(
+                f"TF-IDF vectorizer tidak ditemukan atau rusak: {p['vectorizer']}\n"
+                "Jalankan `python train_cbf.py` untuk membangunnya."
+            ) from e
 
-        self.movie_index: faiss.Index = faiss.read_index(p["movie_idx"])
-        self.case_index: faiss.Index = faiss.read_index(p["case_idx"])
+        try:
+            with open(p["movie_ids"], "rb") as f:
+                self.movie_ids: list[int] = pickle.load(f)
+        except (FileNotFoundError, pickle.UnpicklingError, EOFError) as e:
+            raise FileNotFoundError(
+                f"movie_ids.pkl tidak ditemukan atau rusak: {p['movie_ids']}\n"
+                "Jalankan `python train_cbf.py` untuk membangunnya."
+            ) from e
+
+        try:
+            with open(p["case_ids"], "rb") as f:
+                self.case_ids: list[int] = pickle.load(f)
+        except (FileNotFoundError, pickle.UnpicklingError, EOFError) as e:
+            print(f"[WARN] case_ids.pkl tidak ditemukan atau rusak: {p['case_ids']}")
+            print(
+                "[WARN] Case index akan dilewati. Jalankan `python train_cbf.py` jika perlu."
+            )
+            self.case_ids = []
+
+        try:
+            with open(p["cf_model"], "rb") as f:
+                self.cf_model = pickle.load(f)
+        except (FileNotFoundError, pickle.UnpicklingError, EOFError) as e:
+            print(f"[WARN] CF model tidak ditemukan atau rusak: {p['cf_model']}")
+            print(
+                "[WARN] Collaborative filtering akan dinonaktifkan. Jalankan `python train_cf.py` jika perlu."
+            )
+            self.cf_model = None
+
+        try:
+            self.movie_index: faiss.Index = faiss.read_index(p["movie_idx"])
+        except (RuntimeError, OSError) as e:
+            raise FileNotFoundError(
+                f"movie_index.faiss tidak ditemukan atau rusak: {p['movie_idx']}\n"
+                "Jalankan `python train_cbf.py` untuk membangunnya."
+            ) from e
+
+        try:
+            self.case_index: faiss.Index = faiss.read_index(p["case_idx"])
+        except (RuntimeError, OSError) as e:
+            print(
+                f"[WARN] case_index.faiss tidak ditemukan atau rusak: {p['case_idx']}"
+            )
+            print(
+                "[WARN] Case index akan dilewati. CBR retrieve tidak akan berfungsi tanpa case index."
+            )
+            self.case_index = faiss.IndexFlatIP(0)
 
         # Lookup cepat: movieId → indeks di movie_index
         self._movie_id_to_idx = {mid: i for i, mid in enumerate(self.movie_ids)}
@@ -382,7 +427,7 @@ class CBRRecommender:
             f"""
             SELECT rc.case_id, rc.query_text, rc.reference_movie,
                    rc.accepted_ids, rc.rejected_ids,
-                   rc.user_id,
+                   rc.user_id, rc.is_seed,
                    f.genres, f.title
             FROM   retained_cases rc
             LEFT JOIN films f ON f.movieId = rc.reference_movie
@@ -403,8 +448,9 @@ class CBRRecommender:
             row = row_map[cid]
             case_uid = row["user_id"]
 
-            # Skip cases from dissimilar users (keep seed cases with NULL user)
-            if has_user_profile and similar_user_ids and case_uid is not None:
+            # Skip cases from dissimilar users (keep seed cases)
+            is_seed_case = (row["is_seed"] == 1) or (case_uid is None)
+            if has_user_profile and similar_user_ids and not is_seed_case:
                 if int(case_uid) not in similar_user_ids:
                     continue
 
@@ -632,9 +678,13 @@ class CBRRecommender:
         ref_genres: str,
         user_id: Optional[int],
         top_k: int,
+        ref_title: str = "",
+        ref_overview: str = "",
     ) -> list[dict]:
         """Fallback ke movie_index.faiss langsung jika case base belum cukup."""
-        text = (ref_genres + " ") * 3 + query_text
+        text = (
+            (ref_genres + " ") * 3 + ref_title + " " + ref_overview + " " + query_text
+        )
         q_vec = self._vec(text).reshape(1, -1)
         k = min(top_k + 5, len(self.movie_ids))
         sims, indices = self.movie_index.search(q_vec, k)
@@ -748,7 +798,9 @@ class CBRRecommender:
 
         # ── REUSE / Fallback ──────────────────────────────
         if used_fallback:
-            recommendations = self._fallback_cbf(query_text, ref_genres, user_id, top_k)
+            recommendations = self._fallback_cbf(
+                query_text, ref_genres, user_id, top_k, ref_title, ref_overview
+            )
             retrieve_info = {
                 "cases_found": 0,
                 "cases_passed_threshold": 0,
@@ -764,7 +816,9 @@ class CBRRecommender:
             rejected_ids = set()
             for case in similar_cases:
                 rejected_ids.update(int(m) for m in case.get("rejected_ids", []))
-            padding = self._fallback_cbf(query_text, ref_genres, user_id, top_k + 10)
+            padding = self._fallback_cbf(
+                query_text, ref_genres, user_id, top_k + 10, ref_title, ref_overview
+            )
             for r in padding:
                 if (
                     r["movieId"] not in existing_ids
